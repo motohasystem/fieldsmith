@@ -74,7 +74,11 @@ function trace(message: string): void {
  * 生成中の進捗を 1 行のステータスとして見せる。
  * --verbose なら思考の要約もそこに流し、いま何を考えているかまで見えるようにする。
  */
-async function generateWithProgress(prompt: string, model: string | undefined) {
+async function generateWithProgress(
+  prompt: string,
+  model: string | undefined,
+  base?: AppSpec,
+) {
   // まだサーバーから何も返っていないことが分かる文言にする。
   // 「接続しています」のままカウントが進むのは応答待ちを意味する。
   const status = startStatusLine("リクエストを送信しました (サーバーの応答を待っています)");
@@ -137,6 +141,7 @@ async function generateWithProgress(prompt: string, model: string | undefined) {
     return await generateAppSpec(prompt, {
       onEvent,
       ...(model === undefined ? {} : { model }),
+      ...(base === undefined ? {} : { base }),
     });
   } finally {
     clearInterval(stallTimer);
@@ -267,6 +272,70 @@ program
       });
     });
   });
+
+program
+  .command("revise")
+  .description("既存アプリの設計を、指示に沿って書き換えた AppSpec を作る (kintone は読むだけ)")
+  .argument("<appId>", "アプリ ID")
+  .argument("[instruction]", "どう変えたいか。--prompt-file を使う場合は省略する")
+  .option("-f, --prompt-file <path>", "指示を書いたファイル。`-` で標準入力から読む")
+  .option("-o, --out <path>", "保存先。省略時は標準出力")
+  .option("--model <model>", "使用するモデル")
+  .action(
+    async (
+      appId: string,
+      instruction: string | undefined,
+      options: { promptFile?: string; out?: string; model?: string },
+    ) => {
+      await run("revise", async () => {
+        const input = readPrompt(instruction, options.promptFile);
+
+        const config = config_();
+        const kintone = createAuthenticatedKintone({ config, env: process.env });
+        const pulled = await pullApp(appId, kintone, {
+          onProgress: (progress) => say(`  ${progress.message}`),
+        });
+        const current = parseAppSpec(pulled.spec);
+
+        const revised = await generateWithProgress(input.text, options.model, current);
+        const json = `${JSON.stringify(revised, null, 2)}\n`;
+
+        if (options.out === undefined) {
+          if (!isJsonMode()) process.stdout.write(json);
+        } else {
+          writeFileSync(options.out, json, "utf-8");
+          say(`✓ ${options.out} に保存しました。`);
+        }
+
+        // 何が起きるかは、決定的な差分で示す。生成結果の自己申告には頼らない。
+        const diff = diffAppSpec(current, revised);
+        say("");
+        if (isEmptyDiff(diff)) {
+          say("この指示では変更は生じませんでした。");
+        } else {
+          say("この AppSpec を適用すると、こうなります:");
+          say("");
+          for (const line of describeDiff(diff)) say(line);
+        }
+        if (diff.retyped.length > 0) {
+          say("");
+          say("! 型の変更が含まれています。kintone では実行できないため、update は失敗します。");
+          say("  指示を変えるか、生成された AppSpec を手で直してください。");
+        }
+        say("");
+        say(`確認したら: vck update ${appId} ${options.out ?? "<保存した spec>"}`);
+
+        emitSuccess({
+          command: "revise",
+          app: { id: appId, name: pulled.appName },
+          spec: revised,
+          diff,
+          warnings: pulled.warnings,
+          ...(options.out === undefined ? {} : { out: options.out }),
+        });
+      });
+    },
+  );
 
 program
   .command("update")

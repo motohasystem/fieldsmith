@@ -272,10 +272,17 @@ function compareViews(current: readonly ViewSpec[], desired: readonly ViewSpec[]
   return { added, updated, removed };
 }
 
-/** 未指定と既定値を同じものとして扱わないよう、素直に深く比べる。 */
+/**
+ * 値を比べる。
+ *
+ * 真偽値の設定は kintone の既定が false なので、**未指定と false は同じ**とみなす。
+ * ここを分けると「required を書いていないフィールド」と
+ * 「required: false と書いたフィールド」が毎回差分になり、無意味な変更が出続ける。
+ */
 function same(a: unknown, b: unknown): boolean {
   if (a === b) return true;
-  if (a === undefined || b === undefined) return false;
+  if (a === undefined) return b === false;
+  if (b === undefined) return a === false;
   return JSON.stringify(a) === JSON.stringify(b);
 }
 

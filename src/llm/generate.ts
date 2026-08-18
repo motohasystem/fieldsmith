@@ -7,7 +7,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import * as z from "zod/v4";
 import { APP_THEMES, parseAppSpec, type AppSpec } from "../spec/appSpec.js";
 import { isOptionFieldType, SUPPORTED_FIELD_TYPES } from "../spec/fieldSpec.js";
-import { JSON_SHAPE_INSTRUCTION, SYSTEM_PROMPT } from "./prompt.js";
+import { JSON_SHAPE_INSTRUCTION, REVISE_INSTRUCTION, SYSTEM_PROMPT } from "./prompt.js";
 
 /**
  * LLM に生成させるスキーマ。
@@ -28,6 +28,12 @@ import { JSON_SHAPE_INSTRUCTION, SYSTEM_PROMPT } from "./prompt.js";
 const llmFieldSchema = z.object({
   type: z.enum(SUPPORTED_FIELD_TYPES),
   label: z.string(),
+  /**
+   * フィールドコード。新規のフィールドは空文字にして、label から導かせる。
+   * **既存アプリを直すときは、既存フィールドのコードを必ずそのまま書く。**
+   * ここが変わると別のフィールドとみなされ、追加 + 元は削除候補になる。
+   */
+  code: z.string(),
   required: z.boolean(),
   /** 選択肢。RADIO_BUTTON / CHECK_BOX / MULTI_SELECT / DROP_DOWN 以外は空配列。 */
   options: z.array(z.string()),
@@ -72,6 +78,7 @@ const llmAppSpecLenientSchema = z.object({
     z.object({
       type: z.enum(SUPPORTED_FIELD_TYPES),
       label: z.string(),
+      code: z.string().default(""),
       required: z.boolean().default(false),
       options: z.array(z.string()).default([]),
       expression: z.string().default(""),
@@ -125,6 +132,11 @@ export type GenerationEvent =
     };
 
 export interface GenerateOptions {
+  /**
+   * 直す対象の AppSpec。渡すと「これを変更した完成形」を書かせる。
+   * 省略すると、要件から新しく起こす。
+   */
+  readonly base?: AppSpec;
   readonly model?: string;
   readonly client?: Anthropic;
   /**
@@ -172,8 +184,10 @@ export async function generateAppSpec(
         // display: "summarized" にしないと thinking の中身は空で流れてくる。
         // 進捗として見せたいので明示する。
         thinking: { type: "adaptive", display: "summarized" },
-        system: useSchema ? SYSTEM_PROMPT : SYSTEM_PROMPT + JSON_SHAPE_INSTRUCTION,
-        messages: [{ role: "user", content: prompt }],
+        system:
+          (options.base === undefined ? SYSTEM_PROMPT : SYSTEM_PROMPT + REVISE_INSTRUCTION) +
+          (useSchema ? "" : JSON_SHAPE_INSTRUCTION),
+        messages: [{ role: "user", content: buildUserMessage(prompt, options.base) }],
         ...(useSchema ? { output_config: { format: LLM_OUTPUT_FORMAT } } : {}),
         // 安全性分類器が要求を差し戻した場合に、別モデルへ自動でフォールバックさせる。
         betas: ["server-side-fallback-2026-07-01"],
@@ -259,7 +273,7 @@ export async function generateAppSpec(
   options.onRawSpec?.(raw);
 
   try {
-    return parseAppSpec(toAppSpecInput(raw));
+    return parseAppSpec(withInheritedFromBase(toAppSpecInput(raw), options.base));
   } catch (error) {
     throw new AppSpecGenerationError(
       "生成されたアプリ設計が kintone の制約を満たしていませんでした。" +
@@ -305,6 +319,7 @@ function toFieldInput(field: LlmField): Record<string, unknown> {
     label: field.label,
     required: field.required,
   };
+  assign(result, "code", field.code);
 
   if (isOptionFieldType(field.type)) {
     result["options"] = field.options;
@@ -369,4 +384,42 @@ export function parseSpecFromText(response: {
   } catch {
     return null;
   }
+}
+
+/**
+ * モデルに渡す本文を組み立てる。
+ * 直す場合は、いまの設計をそのまま見せてから依頼を書く。
+ */
+function buildUserMessage(prompt: string, base: AppSpec | undefined): string {
+  if (base === undefined) return prompt;
+
+  return (
+    "## いま動いているアプリの設計\n\n" +
+    "```json\n" +
+    `${JSON.stringify(base, null, 2)}\n` +
+    "```\n\n" +
+    "## 変更してほしいこと\n\n" +
+    prompt
+  );
+}
+
+/**
+ * 直す場合に、モデルが表現できない項目を元の設計から引き継ぐ。
+ *
+ * `layout` と `icon` は LLM のスキーマに無い (前者は構造化出力の上限、
+ * 後者は kintone から絵文字として取り出せないため)。
+ * 引き継がないと、頼んでいないレイアウトの組み直しやアイコンの付け替えが起きる。
+ */
+function withInheritedFromBase(
+  spec: Record<string, unknown>,
+  base: AppSpec | undefined,
+): Record<string, unknown> {
+  if (base === undefined) return spec;
+
+  const inherited = { ...spec };
+  if (base.layout !== undefined) inherited["layout"] = base.layout;
+  if (spec["icon"] === undefined && base.icon !== undefined) inherited["icon"] = base.icon;
+  // 元にアイコンが無いなら、頼まれてもいないのに付けない。
+  if (base.icon === undefined) delete inherited["icon"];
+  return inherited;
 }

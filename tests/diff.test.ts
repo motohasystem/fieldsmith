@@ -218,6 +218,27 @@ describe("アプリ設定の差分", () => {
     expect(diff.updated).toEqual([]);
   });
 
+  /**
+   * kintone の真偽値の既定は false。分けて扱うと、
+   * 「required を書いていない」と「required: false と書いた」が毎回差分になる。
+   */
+  it("真偽値の未指定と false を同じものとして扱う", () => {
+    const diff = diffAppSpec(
+      spec([text("案件名")]),
+      spec([text("案件名", { required: false })]),
+    );
+    expect(diff.updated).toEqual([]);
+    expect(isEmptyDiff(diff)).toBe(true);
+  });
+
+  it("true から false への変更は捉える", () => {
+    const diff = diffAppSpec(
+      spec([text("案件名", { required: true })]),
+      spec([text("案件名", { required: false })]),
+    );
+    expect(diff.updated[0]!.changes).toEqual([{ key: "required", from: true, to: false }]);
+  });
+
   it("明示的に書けば変えられる", () => {
     const diff = diffAppSpec(
       spec([text("案件名", { required: true })]),

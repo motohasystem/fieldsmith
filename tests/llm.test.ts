@@ -10,6 +10,7 @@ import {
   type GenerationEvent,
 } from "../src/llm/generate.js";
 import { SYSTEM_PROMPT } from "../src/llm/prompt.js";
+import { parseAppSpec } from "../src/spec/appSpec.js";
 
 type StreamEvent =
   | { readonly on: "connect" }
@@ -102,6 +103,7 @@ const field = (over: Partial<RawField>): RawField => ({
   type: "SINGLE_LINE_TEXT",
   label: "項目",
   required: false,
+  code: "",
   options: [],
   expression: "",
   group: "",
@@ -435,6 +437,77 @@ describe("退避経路の JSON 抽出", () => {
 
   it("壊れた JSON なら null (例外を投げない)", () => {
     expect(parseSpecFromText(wrap('{"name": }'))).toBeNull();
+  });
+});
+
+describe("既存アプリを直す (revise)", () => {
+  const current = parseAppSpec({
+    name: "案件管理",
+    layout: "stacked",
+    fields: [
+      { type: "SINGLE_LINE_TEXT", label: "案件名", code: "案件名", required: true },
+      { type: "SINGLE_LINE_TEXT", label: "顧客名", code: "顧客名" },
+    ],
+  });
+
+  it("いまの設計を見せてから依頼を書く", async () => {
+    const { client, params } = fakeClient({ stop_reason: "end_turn", parsed_output: rawSpec, usage });
+    await generateAppSpec("金額を追加して", { client, base: current });
+
+    const p = params();
+    const message = p["messages"][0]["content"] as string;
+    expect(message).toContain("いま動いているアプリの設計");
+    expect(message).toContain('"code": "案件名"');
+    expect(message).toContain("金額を追加して");
+  });
+
+  it("既存コードを変えないよう、指示を足す", async () => {
+    const { client, params } = fakeClient({ stop_reason: "end_turn", parsed_output: rawSpec, usage });
+    await generateAppSpec("直して", { client, base: current });
+
+    const system = params()["system"] as string;
+    // コードが変わるとデータが引き継がれないので、いちばん強く縛る必要がある。
+    expect(system).toMatch(/code.*は絶対に変えない/);
+    expect(system).toMatch(/型は後から変更できません/);
+    expect(system).toMatch(/一覧 \(views\) の fields からも外す/);
+  });
+
+  it("新規作成のときは、その指示を足さない", async () => {
+    const { client, params } = fakeClient({ stop_reason: "end_turn", parsed_output: rawSpec, usage });
+    await generateAppSpec("案件管理アプリ", { client });
+
+    expect(params()["system"]).not.toMatch(/いま動いているアプリの設計/);
+    expect(params()["messages"][0]["content"]).toBe("案件管理アプリ");
+  });
+
+  it("モデルが書いた code をそのまま活かす", async () => {
+    const { client } = fakeClient({
+      stop_reason: "end_turn",
+      usage,
+      parsed_output: {
+        ...rawSpec,
+        views: [],
+        titleFieldCode: "",
+        fields: [
+          // ラベルだけ変えて、コードは据え置く。
+          field({ label: "案件タイトル", code: "案件名" }),
+        ],
+      },
+    });
+
+    const spec = await generateAppSpec("案件名のラベルを変えて", { client, base: current });
+    expect(spec.fields[0]).toMatchObject({ label: "案件タイトル", code: "案件名" });
+  });
+
+  it("code が空なら label から導く (新しいフィールド)", async () => {
+    const { client } = fakeClient({
+      stop_reason: "end_turn",
+      usage,
+      parsed_output: { ...rawSpec, views: [], titleFieldCode: "", fields: [field({ label: "金額", code: "" })] },
+    });
+
+    const spec = await generateAppSpec("金額を追加", { client, base: current });
+    expect(spec.fields[0]!.code).toBeUndefined();
   });
 });
 
