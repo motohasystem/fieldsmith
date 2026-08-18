@@ -1,0 +1,115 @@
+{
+  "name": "書籍管理",
+  "description": "書籍の書誌情報を登録・管理するためのアプリです。書名・著者・出版社・出版年月日・ISBN などの基本的な書誌情報と、分類や保管場所、貸出状況を管理します。",
+  "theme": "BLUE",
+  "icon": "📚",
+  "fields": [
+    {
+      "code": "書名",
+      "label": "書名",
+      "required": true,
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "code": "著者",
+      "label": "著者",
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "code": "出版社",
+      "label": "出版社",
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "code": "出版日",
+      "label": "出版日",
+      "type": "DATE"
+    },
+    {
+      "code": "ISBN",
+      "label": "ISBN",
+      "unique": true,
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "code": "分類",
+      "label": "分類",
+      "type": "DROP_DOWN",
+      "options": [
+        "総記",
+        "哲学",
+        "歴史",
+        "社会科学",
+        "自然科学",
+        "技術・工学",
+        "産業",
+        "芸術",
+        "言語",
+        "文学",
+        "その他"
+      ]
+    },
+    {
+      "code": "価格",
+      "label": "価格",
+      "type": "NUMBER",
+      "digit": true,
+      "unit": "円",
+      "unitPosition": "AFTER"
+    },
+    {
+      "code": "保管場所",
+      "label": "保管場所",
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "code": "貸出状況",
+      "label": "貸出状況",
+      "required": true,
+      "type": "RADIO_BUTTON",
+      "options": [
+        "在庫あり",
+        "貸出中"
+      ]
+    },
+    {
+      "code": "備考",
+      "label": "備考",
+      "type": "MULTI_LINE_TEXT"
+    }
+  ],
+  "views": [
+    {
+      "name": "すべての書籍",
+      "type": "LIST",
+      "fields": [
+        "書名",
+        "著者",
+        "出版社",
+        "出版日",
+        "ISBN",
+        "分類",
+        "貸出状況",
+        "保管場所"
+      ],
+      "sort": "更新日時 desc"
+    },
+    {
+      "name": "貸出中の書籍",
+      "type": "LIST",
+      "fields": [
+        "書名",
+        "著者",
+        "出版社",
+        "ISBN",
+        "保管場所",
+        "貸出状況"
+      ],
+      "filterCond": "貸出状況 in (\"貸出中\")",
+      "sort": "更新日時 desc"
+    }
+  ],
+  "settings": {
+    "titleFieldCode": "書名"
+  }
+}

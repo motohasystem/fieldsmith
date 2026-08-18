@@ -1,0 +1,38 @@
+{
+  "name": "vibecraft-kintone",
+  "version": "0.1.0",
+  "description": "プロンプトから kintone アプリを生成してデプロイする CLI",
+  "type": "module",
+  "bin": {
+    "vck": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "assets"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "vck": "tsx src/cli/index.ts",
+    "e2e:manual": "tsx scripts/e2e-manual.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
+    "@kintone/rest-api-client": "^5.7.5",
+    "@resvg/resvg-js": "^2.6.2",
+    "commander": "^14.0.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "msw": "^2.11.3",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

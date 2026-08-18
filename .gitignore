@@ -1,0 +1,17 @@
+# 依存とビルド成果物
+node_modules/
+dist/
+
+# 認証情報。.env.example を雛形にして各自で作る
+.env
+.env.*
+!.env.example
+
+# 実行時の生成物
+*.log
+coverage/
+
+# エディタ・OS
+.DS_Store
+.idea/
+*.swp

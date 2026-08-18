@@ -1,0 +1,83 @@
+{
+  "name": "案件管理",
+  "description": "営業案件の基本情報（案件名・顧客名・金額・受注確度・担当者・受注予定日）を登録し、進行中の案件を一覧で把握するためのアプリです。",
+  "theme": "BLUE",
+  "icon": "💼",
+  "fields": [
+    {
+      "label": "案件名",
+      "required": true,
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "label": "顧客名",
+      "required": true,
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "label": "金額",
+      "required": false,
+      "type": "NUMBER"
+    },
+    {
+      "label": "受注確度",
+      "required": true,
+      "type": "RADIO_BUTTON",
+      "options": [
+        "高",
+        "中",
+        "低"
+      ]
+    },
+    {
+      "label": "担当者",
+      "required": true,
+      "type": "USER_SELECT"
+    },
+    {
+      "label": "受注予定日",
+      "required": false,
+      "type": "DATE"
+    }
+  ],
+  "views": [
+    {
+      "name": "全案件一覧",
+      "type": "LIST",
+      "fields": [
+        "案件名",
+        "顧客名",
+        "金額",
+        "受注確度",
+        "担当者",
+        "受注予定日"
+      ]
+    },
+    {
+      "name": "受注確度が高い案件",
+      "type": "LIST",
+      "fields": [
+        "案件名",
+        "顧客名",
+        "金額",
+        "担当者",
+        "受注予定日"
+      ]
+    },
+    {
+      "name": "担当者別一覧",
+      "type": "LIST",
+      "fields": [
+        "担当者",
+        "案件名",
+        "顧客名",
+        "受注確度",
+        "受注予定日",
+        "金額"
+      ]
+    }
+  ],
+  "settings": {
+    "titleFieldCode": "案件名"
+  }
+}

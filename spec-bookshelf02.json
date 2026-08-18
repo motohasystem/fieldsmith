@@ -1,0 +1,196 @@
+{
+  "name": "蔵書管理",
+  "description": "個人の蔵書を管理するアプリです。書名・著者などの書誌情報に加え、読了ステータス、評価、所有状態（貸出先）、所在、タグ・ジャンルを記録します。書影URL・書影画像、背表紙OCRの原文、書誌の確度も保持し、紙と電子で別レコードを持てるようISBNの重複は禁止していません。本棚IDは重複禁止です。",
+  "theme": "WHITE",
+  "icon": "蔵書",
+  "fields": [
+    {
+      "label": "本棚ID",
+      "required": true,
+      "group": "識別",
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "label": "書名",
+      "required": true,
+      "group": "基本",
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "label": "著者",
+      "required": false,
+      "group": "基本",
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "label": "読了ステータス",
+      "required": false,
+      "group": "読書",
+      "type": "DROP_DOWN",
+      "options": [
+        "未読",
+        "読書中",
+        "読了"
+      ]
+    },
+    {
+      "label": "評価",
+      "required": false,
+      "group": "読書",
+      "type": "DROP_DOWN",
+      "options": [
+        "★",
+        "★★",
+        "★★★",
+        "★★★★",
+        "★★★★★"
+      ]
+    },
+    {
+      "label": "所有状態",
+      "required": false,
+      "group": "所有",
+      "type": "DROP_DOWN",
+      "options": [
+        "所有",
+        "貸出中",
+        "処分済み",
+        "電子"
+      ]
+    },
+    {
+      "label": "貸出先",
+      "required": false,
+      "group": "所有",
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "label": "所在",
+      "required": false,
+      "group": "整理",
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "label": "タグ・ジャンル",
+      "required": false,
+      "group": "整理",
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "label": "出版社",
+      "required": false,
+      "group": "書誌情報",
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "label": "出版年",
+      "required": false,
+      "group": "書誌情報",
+      "type": "NUMBER"
+    },
+    {
+      "label": "ISBN",
+      "required": false,
+      "group": "書誌情報",
+      "type": "SINGLE_LINE_TEXT"
+    },
+    {
+      "label": "書影URL",
+      "required": false,
+      "group": "書影",
+      "type": "LINK",
+      "protocol": "WEB"
+    },
+    {
+      "label": "書影",
+      "required": false,
+      "group": "書影",
+      "type": "FILE"
+    },
+    {
+      "label": "書誌の確度",
+      "required": false,
+      "group": "確認",
+      "type": "DROP_DOWN",
+      "options": [
+        "未検索",
+        "確定",
+        "要確認",
+        "見つからず"
+      ]
+    },
+    {
+      "label": "登録日",
+      "required": false,
+      "group": "確認",
+      "type": "DATE"
+    },
+    {
+      "label": "背表紙OCR原文",
+      "required": false,
+      "group": "OCR",
+      "type": "MULTI_LINE_TEXT"
+    },
+    {
+      "label": "メモ",
+      "required": false,
+      "group": "メモ",
+      "type": "MULTI_LINE_TEXT"
+    }
+  ],
+  "views": [
+    {
+      "name": "全蔵書",
+      "type": "LIST",
+      "fields": [
+        "本棚ID",
+        "書名",
+        "著者",
+        "読了ステータス",
+        "所有状態",
+        "所在",
+        "タグ・ジャンル",
+        "登録日"
+      ]
+    },
+    {
+      "name": "未読・読書中",
+      "type": "LIST",
+      "fields": [
+        "書名",
+        "著者",
+        "読了ステータス",
+        "評価",
+        "所在",
+        "登録日"
+      ]
+    },
+    {
+      "name": "貸出中",
+      "type": "LIST",
+      "fields": [
+        "書名",
+        "著者",
+        "所有状態",
+        "貸出先",
+        "所在"
+      ]
+    },
+    {
+      "name": "書誌の要確認",
+      "type": "LIST",
+      "fields": [
+        "書名",
+        "著者",
+        "出版社",
+        "出版年",
+        "ISBN",
+        "書誌の確度",
+        "更新日時"
+      ]
+    }
+  ],
+  "settings": {
+    "titleFieldCode": "書名"
+  }
+}
