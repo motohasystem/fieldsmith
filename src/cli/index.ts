@@ -6,7 +6,7 @@ import { KintoneRestAPIError } from "@kintone/rest-api-client";
 import { Command } from "commander";
 import { ConfigError, loadDotEnv, loadKintoneConfig, type KintoneConfig } from "../config.js";
 import { createAuthenticatedKintone, KintoneRequestError } from "../kintone/client.js";
-import { DeployError, deployAppSpec, type DeployProgress } from "../kintone/deploy.js";
+import { DeployError, deployAppSpec, pullApp, type DeployProgress } from "../kintone/deploy.js";
 import {
   buildAuthorizationRequest,
   exchangeAuthorizationCode,
@@ -160,6 +160,52 @@ program
     await run("deploy", async () => {
       const spec = readSpecFile(specPath);
       await deployWithOptions(spec, options);
+    });
+  });
+
+program
+  .command("pull")
+  .description("既存アプリの設定を AppSpec として取り出す (kintone を変更しない)")
+  .argument("<appId>", "アプリ ID")
+  .option("-o, --out <path>", "保存先。省略時は標準出力")
+  .action(async (appId: string, options: { out?: string }) => {
+    await run("pull", async () => {
+      const config = config_();
+      trace(`接続先: ${config.baseUrl}`);
+
+      const kintone = createAuthenticatedKintone({ config, env: process.env });
+      const pulled = await pullApp(appId, kintone, {
+        onProgress: (progress) => {
+          say(`  ${progress.message}`);
+          if (progress.detail !== undefined && isVerbose()) trace(`    ${progress.detail}`);
+        },
+      });
+
+      // 取得した spec が本当にデプロイできる形かを、ここで確かめる。
+      // 通らないものを渡すと、使う側が原因を追うことになる。
+      const spec = parseAppSpec(pulled.spec);
+      const json = `${JSON.stringify(spec, null, 2)}\n`;
+
+      if (options.out === undefined) {
+        if (!isJsonMode()) process.stdout.write(json);
+      } else {
+        writeFileSync(options.out, json, "utf-8");
+        say(`✓ ${options.out} に保存しました。`);
+      }
+
+      if (pulled.warnings.length > 0) {
+        say("");
+        say("次の設定は AppSpec で表現できないため含まれていません:");
+        for (const warning of pulled.warnings) say(`  - ${warning}`);
+      }
+
+      emitSuccess({
+        command: "pull",
+        app: { id: pulled.appId, name: pulled.appName },
+        spec,
+        warnings: pulled.warnings,
+        ...(options.out === undefined ? {} : { out: options.out }),
+      });
     });
   });
 

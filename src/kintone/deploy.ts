@@ -1,5 +1,6 @@
 import type { KintoneRestAPIClient } from "@kintone/rest-api-client";
 import { fieldGroups, resolveLayout, type AppSpec } from "../spec/appSpec.js";
+import { toAppSpecFromKintone, type KintoneProperties } from "../spec/fromKintone.js";
 import { describeRows, regroupLayout, type LayoutRow } from "../spec/layout.js";
 import { toKintonePayloads, type KintoneFieldProperties } from "../spec/toKintone.js";
 import { backgroundFor, renderIcon } from "../icon/render.js";
@@ -386,4 +387,74 @@ function describe(prefix: string, error: unknown): string {
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 既存アプリから取得した設定。`vck pull` で使う。 */
+export interface PulledApp {
+  readonly spec: Record<string, unknown>;
+  readonly warnings: readonly string[];
+  readonly appId: string;
+  readonly appName: string;
+}
+
+/**
+ * 既存アプリの設定を読み取って AppSpec に戻す。
+ *
+ * **読み取りしかしない。** kintone を一切変更しないので、いつ実行しても安全。
+ * 運用環境の設定を見るため preview は使わない (動作テスト環境に未反映の変更は含めない)。
+ */
+export async function pullApp(
+  appId: string,
+  kintone: AuthenticatedKintone,
+  options: { readonly onProgress?: (progress: DeployProgress) => void } = {},
+): Promise<PulledApp> {
+  const report = options.onProgress ?? (() => {});
+
+  report({ step: "createApp", message: `アプリ ${appId} の設定を取得しています` });
+
+  const [settings, form, layout, views] = await Promise.all([
+    kintone.call((client) => client.app.getAppSettings({ app: appId })),
+    kintone.call((client) => client.app.getFormFields({ app: appId })),
+    kintone.call((client) => client.app.getFormLayout({ app: appId })),
+    kintone.call((client) => client.app.getViews({ app: appId })),
+  ]);
+
+  const pulled = toAppSpecFromKintone({
+    name: settings.name,
+    description: stripHtml(settings.description),
+    theme: settings.theme,
+    icon: settings.icon as { type?: string } | undefined,
+    properties: form.properties as unknown as KintoneProperties,
+    layout: layout.layout as unknown as Record<string, unknown>[],
+    views: views.views as unknown as Record<string, Record<string, unknown>>,
+    titleField: settings.titleField as { selectionMode?: string; code?: string },
+    settings: settings as unknown as Record<string, unknown>,
+  });
+
+  report({
+    step: "createApp",
+    message: `「${settings.name}」を AppSpec にしました`,
+    detail: `フィールド ${(pulled.spec["fields"] as unknown[]).length} 件 / 警告 ${pulled.warnings.length} 件`,
+  });
+
+  return { ...pulled, appId, appName: settings.name };
+}
+
+/**
+ * kintone のアプリ説明は HTML で返る。
+ * AppSpec は素のテキストとして扱うので、タグを落として改行に均す。
+ */
+function stripHtml(html: string | undefined): string | undefined {
+  if (html === undefined || html === "") return undefined;
+  const text = html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return text === "" ? undefined : text;
 }
