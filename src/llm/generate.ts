@@ -16,9 +16,12 @@ import { JSON_SHAPE_INSTRUCTION, REVISE_INSTRUCTION, SYSTEM_PROMPT } from "./pro
  * 構造化出力が受け付けない。受け取った後にコアの parseAppSpec() で厳密に検証する二段構えにしている。
  *
  * ここは構造化出力の 2 つの上限に挟まれているため、書き方に強い制約がある。
- *   - `.nullable()` は anyOf (union) になり、「union を持つパラメータは 16 個まで」に当たる
- *   - `.optional()` は union にならないが、キーの出現順が自由になるぶん grammar が膨らみ、
- *     「Schema is too complex」に当たる
+ * 構造化出力は JSON Schema を制約付きデコード用の文法にコンパイルするので、
+ * 文法が膨らむ書き方はサーバー側 (Claude API) が 400 で弾く。
+ *   - `.nullable()` は anyOf (union) になる
+ *     → "Schemas contains too many parameters with union types (limit: 16 parameters with unions)"
+ *   - `.optional()` は union にならないが、キーの出現順が自由になるぶん組み合わせが増える
+ *     → "Schema is too complex"
  *
  * そこで **すべてのプロパティを必須にし、「指定なし」は空文字・空配列で表す**。
  * union も optional も 0 になり、grammar が最小になる。
@@ -214,9 +217,9 @@ export async function generateAppSpec(
     try {
       response = await request(true);
     } catch (error) {
-      // 構造化出力には「union は 16 個まで」「grammar が複雑すぎるものは不可」という
-      // 上限がある。スキーマを増やすと再発しうるので、弾かれたら JSON を直接
-      // 書かせる方式に切り替える。どちらの経路でも結果はコアの検証を通す。
+      // 構造化出力のスキーマ上限は公式に文書化されておらず、実行してみるまで分からない。
+      // 弾かれたら JSON を直接書かせる方式に切り替える。
+      // どちらの経路でも結果はコアの検証を通すので、扱いは変わらない。
       if (!isSchemaRejected(error)) throw error;
       notify({ type: "schemaFallback", reason: messageOf(error) });
       usedSchema = false;

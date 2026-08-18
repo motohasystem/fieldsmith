@@ -186,10 +186,15 @@ describe("toAppSpecInput", () => {
 
 describe("構造化出力のスキーマ", () => {
   /**
-   * 構造化出力は 2 つの上限に挟まれている。
-   *   - `.nullable()` は anyOf になり「union は 16 個まで」に当たる
-   *   - `.optional()` はキーの出現順が自由になり「Schema is too complex」に当たる
-   * どちらも実際に 400 で弾かれたので、両方をここで見張る。
+   * 構造化出力のスキーマは Claude API 側で文法にコンパイルされ、
+   * 膨らむ書き方は 400 で弾かれる。実際に 2 通りの弾かれ方をした。
+   *   - `.nullable()` → anyOf になり
+   *     "too many parameters with union types (limit: 16 parameters with unions)"
+   *   - `.optional()` → キーの出現順が自由になり "Schema is too complex"
+   *
+   * 上限は公式に文書化されていないので、下の閾値は観測から決めた経験則。
+   * 効いているのはプロパティ数そのものではなく union と省略可の数なので、
+   * その 2 つは 0 を保つ。
    */
   const walk = (node: unknown, visit: (schema: Record<string, unknown>) => void): void => {
     if (typeof node !== "object" || node === null) return;
@@ -220,12 +225,13 @@ describe("構造化出力のスキーマ", () => {
     expect(optional).toEqual([]);
   });
 
-  it("プロパティ数を抑える", () => {
+  it("プロパティ数を抑える (観測から決めた経験則)", () => {
     let total = 0;
     walk(LLM_OUTPUT_FORMAT.schema, (schema) => {
       total += Object.keys(schema["properties"] ?? {}).length;
     });
-    // 26 個で「Schema is too complex」になった実績があるので、余裕を持たせる。
+    // 26 個 (うち省略可 10) で「Schema is too complex」になり、
+    // 16 個 (union 0 / 省略可 0) は通ることを実測した。安全側に 16 で見張る。
     expect(total).toBeLessThanOrEqual(16);
   });
 });
