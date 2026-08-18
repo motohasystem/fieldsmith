@@ -29,6 +29,7 @@ import {
   resolveLayout,
   type AppSpec,
 } from "../spec/appSpec.js";
+import { describeDiff, diffAppSpec, isEmptyDiff } from "../spec/diff.js";
 import { describeRows, groupIntoRows } from "../spec/layout.js";
 import { toKintonePayloads } from "../spec/toKintone.js";
 import { backgroundFor, renderIcon } from "../icon/render.js";
@@ -205,6 +206,50 @@ program
         spec,
         warnings: pulled.warnings,
         ...(options.out === undefined ? {} : { out: options.out }),
+      });
+    });
+  });
+
+program
+  .command("diff")
+  .description("既存アプリと AppSpec の差分を表示する (kintone を変更しない)")
+  .argument("<appId>", "アプリ ID")
+  .argument("<spec>", "目標とする AppSpec の JSON ファイル")
+  .action(async (appId: string, specPath: string) => {
+    await run("diff", async () => {
+      const desired = readSpecFile(specPath);
+      const config = config_();
+      const kintone = createAuthenticatedKintone({ config, env: process.env });
+
+      const pulled = await pullApp(appId, kintone);
+      const current = parseAppSpec(pulled.spec);
+      const diff = diffAppSpec(current, desired);
+
+      if (isEmptyDiff(diff)) {
+        say(`アプリ ${appId}「${pulled.appName}」と ${specPath} に差分はありません。`);
+      } else {
+        say(`アプリ ${appId}「${pulled.appName}」と ${specPath} の差分:`);
+        say("");
+        for (const line of describeDiff(diff)) say(line);
+
+        if (diff.retyped.length > 0) {
+          say("");
+          say("! kintone は作成後のフィールド型を変更できません。");
+          say("  型を変えるには、別のフィールドコードで新しく作り、");
+          say("  古いフィールドを削除候補に送ることになります (データは移りません)。");
+        }
+        if (diff.orphaned.length > 0) {
+          say("");
+          say("- 削除候補のフィールドは削除されず、畳んだグループに移されます (データは残ります)。");
+        }
+      }
+
+      emitSuccess({
+        command: "diff",
+        app: { id: appId, name: pulled.appName },
+        hasChanges: !isEmptyDiff(diff),
+        diff,
+        warnings: pulled.warnings,
       });
     });
   });
