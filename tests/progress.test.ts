@@ -41,7 +41,7 @@ describe("ステータス行", () => {
     expect(text).toContain("✓ 完了");
   });
 
-  it("TTY でなければ普通の行として出す (制御文字を混ぜない)", () => {
+  it("TTY でなければ update は出さない (log と二重に出さないため)", () => {
     const { stream, output } = fakeStream();
     const status = startStatusLine("接続しています", {
       stream,
@@ -50,20 +50,29 @@ describe("ステータス行", () => {
       ...noopTimers,
     });
     status.update("設計を考えています");
+    status.log("  設計を考えています");
     status.done("✓ 完了");
 
-    expect(output()).toBe("接続しています\n設計を考えています\n✓ 完了\n");
+    // 動きを見せる表示は出ず、履歴として残したものだけが出る。
+    expect(output()).toBe("接続しています\n  設計を考えています\n✓ 完了\n");
     // パイプやログファイルに ANSI エスケープが混ざらないこと。
-    expect(output()).not.toContain("");
+    expect(output()).not.toContain("\u001b");
   });
 
-  it("同じ文言での更新は無視する (ちらつきと行の増殖を防ぐ)", () => {
+  it("同じ文言での更新は無視する (ちらつきを防ぐ)", () => {
     const { stream, chunks } = fakeStream();
-    const status = startStatusLine("待機中", { stream, isTty: false, now: () => 0, ...noopTimers });
+    let clock = 0;
+    const status = startStatusLine("待機中", {
+      stream,
+      isTty: true,
+      now: () => clock,
+      ...noopTimers,
+    });
+    const before = chunks.length;
     status.update("待機中");
     status.update("待機中");
+    expect(chunks.length).toBe(before);
     status.done();
-    expect(chunks).toEqual(["待機中\n"]);
   });
 
   it("done を二重に呼んでも出力が重複しない", () => {
@@ -79,6 +88,7 @@ describe("ステータス行", () => {
     const status = startStatusLine("処理中", { stream, isTty: false, now: () => 0, ...noopTimers });
     status.done();
     status.update("あとから来た更新");
+    status.log("あとから来た履歴");
     expect(output()).not.toContain("あとから来た更新");
   });
 

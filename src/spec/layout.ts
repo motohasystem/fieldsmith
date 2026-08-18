@@ -173,3 +173,124 @@ export function regroupLayout(
 export function describeRows(rows: readonly (readonly LayoutField[])[]): string[] {
   return rows.map((row) => row.map((field) => field.code).join(" | "));
 }
+
+/**
+ * 削除候補グループのフィールドコード。
+ * 毎回同じコードを使うことで、更新を繰り返してもグループが増えない。
+ */
+export const ORPHAN_GROUP_CODE = "_削除候補";
+export const ORPHAN_GROUP_LABEL = "削除候補";
+
+/** レイアウトから、そのフィールドコードを取り除く。空になった行は落とす。 */
+function withoutFields(layout: readonly LayoutRow[], remove: ReadonlySet<string>): LayoutRow[] {
+  const result: LayoutRow[] = [];
+  for (const row of layout) {
+    if (row.type === "ROW") {
+      const fields = ((row as { fields?: LayoutField[] }).fields ?? []).filter(
+        (field) => !remove.has(field.code),
+      );
+      if (fields.length > 0) result.push({ type: "ROW", fields });
+      continue;
+    }
+    if (row.type === "GROUP") {
+      const nested = withoutFields(
+        ((row as { layout?: LayoutRow[] }).layout ?? []) as LayoutRow[],
+        remove,
+      );
+      result.push({ ...(row as Record<string, unknown>), type: "GROUP", layout: nested } as LayoutRow);
+      continue;
+    }
+    result.push(row);
+  }
+  return result;
+}
+
+/** レイアウトに載っているフィールドを、入れ子も含めて集める。 */
+export function collectLayoutFields(layout: readonly LayoutRow[]): LayoutField[] {
+  const fields: LayoutField[] = [];
+  for (const row of layout) {
+    const own = (row as { fields?: LayoutField[] }).fields;
+    if (row.type === "ROW" && Array.isArray(own)) fields.push(...own);
+    const nested = (row as { layout?: LayoutRow[] }).layout;
+    if (Array.isArray(nested)) fields.push(...collectLayoutFields(nested));
+  }
+  return fields;
+}
+
+export interface UpdatedLayoutInput {
+  /** kintone から取得した現在のレイアウト。 */
+  readonly current: readonly LayoutRow[];
+  /** 目標の並び。regroup が true のときだけ使う。 */
+  readonly desired: readonly LayoutField[];
+  /** 削除候補に送るフィールドコード。 */
+  readonly orphans: readonly string[];
+  /** 並びを組み直すか。false なら既存の行に手を触れない。 */
+  readonly regroup: boolean;
+  readonly maxPerRow?: number;
+  readonly groups?: FieldGroups;
+}
+
+/**
+ * 更新後のフォームレイアウトを組み立てる。
+ *
+ * レイアウト変更 API は「フォーム上のすべてのフィールド」の指定を求めるので、
+ * 現在のレイアウトを起点に、載せ替えと退避を行う。
+ *
+ * 削除候補のフィールドは**消さずに**、畳んだグループへ移す。
+ * 逆に、削除候補グループの中にあったフィールドが目標に戻ってきたら、外に出す。
+ */
+export function buildUpdatedLayout(input: UpdatedLayoutInput): LayoutRow[] {
+  const orphans = new Set(input.orphans);
+  const desiredCodes = new Set(input.desired.map((field) => field.code));
+
+  // 既存の削除候補グループの中身を把握する。目標に戻ったものは外へ出す。
+  const existingGroup = input.current.find(
+    (row) => row.type === "GROUP" && (row as { code?: string }).code === ORPHAN_GROUP_CODE,
+  );
+  const parked = existingGroup === undefined
+    ? []
+    : collectLayoutFields(((existingGroup as { layout?: LayoutRow[] }).layout ?? []) as LayoutRow[]);
+  const revived = parked.filter((field) => desiredCodes.has(field.code));
+
+  // 型が分かるように、退避するフィールドの情報を現在のレイアウトから拾っておく。
+  const known = new Map(collectLayoutFields(input.current).map((field) => [field.code, field]));
+
+  // 削除候補グループと、そこへ入るもの・戻るものを、いったん全部どかす。
+  const removed = new Set([...orphans, ...parked.map((field) => field.code)]);
+  let base = withoutFields(
+    input.current.filter(
+      (row) => !(row.type === "GROUP" && (row as { code?: string }).code === ORPHAN_GROUP_CODE),
+    ),
+    removed,
+  );
+
+  if (input.regroup) {
+    // ROW は目標の並びで作り直す。GROUP / SUBTABLE はそのまま残す。
+    const others = base.filter((row) => row.type !== "ROW");
+    const rows = groupIntoRows(
+      input.desired.filter((field) => !orphans.has(field.code)),
+      {
+        ...(input.maxPerRow === undefined ? {} : { maxPerRow: input.maxPerRow }),
+        ...(input.groups === undefined ? {} : { groups: input.groups }),
+      },
+    ).map((row): LayoutRow => ({ type: "ROW", fields: row }));
+    base = [...rows, ...others];
+  } else {
+    // 手を触れない場合でも、戻ってきたフィールドは行として足す必要がある。
+    base = [...base, ...revived.map((field): LayoutRow => ({ type: "ROW", fields: [field] }))];
+  }
+
+  const parkedNow = [...orphans].map(
+    (code): LayoutField => known.get(code) ?? { code, type: "SINGLE_LINE_TEXT" },
+  );
+  if (parkedNow.length === 0) return base;
+
+  return [
+    ...base,
+    {
+      type: "GROUP",
+      code: ORPHAN_GROUP_CODE,
+      layout: parkedNow.map((field): LayoutRow => ({ type: "ROW", fields: [field] })),
+    } as LayoutRow,
+  ];
+}

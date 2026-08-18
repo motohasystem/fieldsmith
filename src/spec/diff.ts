@@ -193,6 +193,12 @@ function byCode(fields: readonly FieldSpec[]): Map<string, FieldSpec> {
  * フィールドの設定を比べる。
  * `code` と `group` は比較から外す — 前者は同一性の鍵、
  * 後者はレイアウトの都合で kintone には送らない情報なので。
+ *
+ * **AppSpec で書かれていない項目は「現状維持」として扱う。**
+ * kintone の設定変更 API は省略した項目を変えないので、
+ * 「現状にはあるが目標には書かれていない」を変更として報告すると、
+ * 実際には何も起きないのに差分が永遠に消えないことになる。
+ * 値を変えたいときは、明示的に書く (例: `"required": false`)。
  */
 const FIELD_KEYS_TO_IGNORE = new Set(["code", "type", "group"]);
 
@@ -206,6 +212,7 @@ function compareFields(current: FieldSpec, desired: FieldSpec): Change[] {
   for (const key of [...keys].sort()) {
     const from = (current as Record<string, unknown>)[key];
     const to = (desired as Record<string, unknown>)[key];
+    if (to === undefined) continue;
     if (!same(from, to)) {
       changes.push({ key, from, to });
     }
@@ -216,7 +223,9 @@ function compareFields(current: FieldSpec, desired: FieldSpec): Change[] {
 function compareAppSettings(current: AppSpec, desired: AppSpec): Change[] {
   const changes: Change[] = [];
 
+  // 未指定は「現状維持」。書かれていない項目は送らないので、差分にもしない。
   for (const key of ["name", "description", "theme", "icon", "iconBackground"] as const) {
+    if (desired[key] === undefined) continue;
     if (!same(current[key], desired[key])) {
       changes.push({ key, from: current[key], to: desired[key] });
     }
@@ -225,6 +234,7 @@ function compareAppSettings(current: AppSpec, desired: AppSpec): Change[] {
   const currentSettings = (current.settings ?? {}) as Record<string, unknown>;
   const desiredSettings = (desired.settings ?? {}) as Record<string, unknown>;
   for (const key of [...new Set([...Object.keys(currentSettings), ...Object.keys(desiredSettings)])].sort()) {
+    if (desiredSettings[key] === undefined) continue;
     if (!same(currentSettings[key], desiredSettings[key])) {
       changes.push({ key: `settings.${key}`, from: currentSettings[key], to: desiredSettings[key] });
     }

@@ -1,8 +1,29 @@
 import type { KintoneRestAPIClient } from "@kintone/rest-api-client";
-import { fieldGroups, resolveLayout, type AppSpec } from "../spec/appSpec.js";
 import { toAppSpecFromKintone, type KintoneProperties } from "../spec/fromKintone.js";
-import { describeRows, regroupLayout, type LayoutRow } from "../spec/layout.js";
-import { toKintonePayloads, type KintoneFieldProperties } from "../spec/toKintone.js";
+import {
+  buildUpdatedLayout,
+  collectLayoutFields,
+  describeRows,
+  ORPHAN_GROUP_CODE,
+  ORPHAN_GROUP_LABEL,
+  regroupLayout,
+  type LayoutRow,
+} from "../spec/layout.js";
+import { diffAppSpec, isEmptyDiff, type AppDiff } from "../spec/diff.js";
+import {
+  fieldGroups,
+  parseAppSpec,
+  resolveFieldCode,
+  resolveLayout,
+  type AppSpec,
+} from "../spec/appSpec.js";
+import {
+  toAppSettings,
+  toFieldProperties,
+  toKintonePayloads,
+  toViews,
+  type KintoneFieldProperties,
+} from "../spec/toKintone.js";
 import { backgroundFor, renderIcon } from "../icon/render.js";
 import { apiPathPrefix, KintoneRequestError, type AuthenticatedKintone } from "./client.js";
 
@@ -395,6 +416,10 @@ export interface PulledApp {
   readonly warnings: readonly string[];
   readonly appId: string;
   readonly appName: string;
+  /** 削除候補グループが既に在るか。二重に作らないために使う。 */
+  readonly hasOrphanGroup: boolean;
+  /** 既に削除候補グループへ移してあるフィールド。もう一度動かさないために使う。 */
+  readonly parkedCodes: readonly string[];
 }
 
 /**
@@ -406,17 +431,29 @@ export interface PulledApp {
 export async function pullApp(
   appId: string,
   kintone: AuthenticatedKintone,
-  options: { readonly onProgress?: (progress: DeployProgress) => void } = {},
+  options: {
+    readonly onProgress?: (progress: DeployProgress) => void;
+    /**
+     * 動作テスト環境の設定を読むか。
+     *
+     * 既定で true。動作テスト環境は「運用環境 + まだ反映していない変更」なので、
+     * 未反映の変更が無ければ運用環境と同じ内容になる。
+     * ここを運用環境にすると、update を反映前に 2 回流したときに
+     * 「もう追加済みのフィールドをまた追加しようとする」ことになる。
+     */
+    readonly preview?: boolean;
+  } = {},
 ): Promise<PulledApp> {
   const report = options.onProgress ?? (() => {});
+  const preview = options.preview !== false;
 
   report({ step: "createApp", message: `アプリ ${appId} の設定を取得しています` });
 
   const [settings, form, layout, views] = await Promise.all([
-    kintone.call((client) => client.app.getAppSettings({ app: appId })),
-    kintone.call((client) => client.app.getFormFields({ app: appId })),
-    kintone.call((client) => client.app.getFormLayout({ app: appId })),
-    kintone.call((client) => client.app.getViews({ app: appId })),
+    kintone.call((client) => client.app.getAppSettings({ app: appId, preview })),
+    kintone.call((client) => client.app.getFormFields({ app: appId, preview })),
+    kintone.call((client) => client.app.getFormLayout({ app: appId, preview })),
+    kintone.call((client) => client.app.getViews({ app: appId, preview })),
   ]);
 
   const pulled = toAppSpecFromKintone({
@@ -437,7 +474,24 @@ export async function pullApp(
     detail: `フィールド ${(pulled.spec["fields"] as unknown[]).length} 件 / 警告 ${pulled.warnings.length} 件`,
   });
 
-  return { ...pulled, appId, appName: settings.name };
+  return {
+    ...pulled,
+    appId,
+    appName: settings.name,
+    hasOrphanGroup: Object.hasOwn(form.properties, ORPHAN_GROUP_CODE),
+    parkedCodes: parkedFieldCodes(layout.layout as unknown as LayoutRow[]),
+  };
+}
+
+/** 削除候補グループの中に居るフィールドコード。 */
+function parkedFieldCodes(layout: readonly LayoutRow[]): string[] {
+  const group = layout.find(
+    (row) => row.type === "GROUP" && (row as { code?: string }).code === ORPHAN_GROUP_CODE,
+  );
+  if (group === undefined) return [];
+  return collectLayoutFields(((group as { layout?: LayoutRow[] }).layout ?? []) as LayoutRow[]).map(
+    (field) => field.code,
+  );
 }
 
 /**
@@ -454,7 +508,251 @@ function stripHtml(html: string | undefined): string | undefined {
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&")
     .replace(/&nbsp;/g, " ")
+    // kintone は全角括弧なども数値文字参照で返す (&#xff08; など)。
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   return text === "" ? undefined : text;
 }
+
+/** 型変更のように、更新では実現できない要求。 */
+export class UnsupportedUpdateError extends Error {
+  constructor(
+    message: string,
+    readonly diff: AppDiff,
+  ) {
+    super(message);
+    this.name = "UnsupportedUpdateError";
+  }
+}
+
+export interface UpdateOptions {
+  /** 運用環境まで反映するか。既定は false (動作テスト環境で止める)。 */
+  readonly deploy?: boolean;
+  readonly onProgress?: (progress: DeployProgress) => void;
+  readonly polling?: PollingOptions;
+}
+
+export interface UpdateResult {
+  readonly appId: string;
+  readonly appName: string;
+  readonly diff: AppDiff;
+  readonly revision: string;
+  /** 運用環境まで反映したか。 */
+  readonly deployed: boolean;
+  readonly warnings: readonly string[];
+  /** 今回あらたに削除候補へ移したフィールド。 */
+  readonly pendingOrphans: readonly string[];
+}
+
+/**
+ * 既存アプリを AppSpec の内容に近づける。
+ *
+ * **既定では動作テスト環境で止める。** 更新は新規作成と違って壊しうるので、
+ * kintone の画面で「変更を確認」してから人が反映を決められるようにする。
+ *
+ * 目標から消えたフィールドは**削除しない**。畳んだグループに移すだけで、データは残る。
+ */
+export async function updateApp(
+  appId: string,
+  desired: AppSpec,
+  kintone: AuthenticatedKintone,
+  options: UpdateOptions = {},
+): Promise<UpdateResult> {
+  const report = options.onProgress ?? (() => {});
+
+  const pulled = await pullApp(appId, kintone, { onProgress: report });
+  const current = parseAppSpec(pulled.spec);
+  const diff = diffAppSpec(current, desired);
+
+  if (diff.retyped.length > 0) {
+    // kintone は作成後の型を変えられない。黙って飛ばすと spec と実物がずれる。
+    const detail = diff.retyped
+      .map((entry) => `    ${entry.code}: ${entry.from} → ${entry.to}`)
+      .join("\n");
+    throw new UnsupportedUpdateError(
+      "kintone は作成後のフィールド型を変更できないため、この AppSpec は適用できません。\n" +
+        `${detail}\n` +
+        "  別のフィールドコードで新しいフィールドを作り、古い方は AppSpec から外してください" +
+        " (外したフィールドは削除候補に移ります。データは残ります)。",
+      diff,
+    );
+  }
+
+  // 既に削除候補へ移してあるものは、もう動かす必要がない。
+  const parked = new Set(pulled.parkedCodes);
+  const orphanCodes = diff.orphaned
+    .map((entry) => entry.code)
+    .filter((code) => !parked.has(code));
+
+  const nothingToDo =
+    diff.added.length === 0 &&
+    diff.updated.length === 0 &&
+    diff.app.length === 0 &&
+    diff.views.added.length === 0 &&
+    diff.views.updated.length === 0 &&
+    diff.views.removed.length === 0 &&
+    !diff.layout.willApply &&
+    orphanCodes.length === 0;
+
+  if (nothingToDo) {
+    return {
+      appId,
+      appName: pulled.appName,
+      diff,
+      revision: "-1",
+      deployed: false,
+      warnings: pulled.warnings,
+      pendingOrphans: [],
+    };
+  }
+
+  let revision = "-1";
+  const needsOrphanGroup = orphanCodes.length > 0 && !pulled.hasOrphanGroup;
+
+  // 追加するフィールド。削除候補グループもフィールドなので、無ければここで作る。
+  const additions = toFieldProperties(diff.added.map((entry) => entry.field));
+  if (needsOrphanGroup) {
+    additions[ORPHAN_GROUP_CODE] = {
+      type: "GROUP",
+      code: ORPHAN_GROUP_CODE,
+      label: ORPHAN_GROUP_LABEL,
+      // 畳んだ状態にして、普段は目に入らないようにする。
+      openGroup: false,
+    };
+  }
+
+  if (Object.keys(additions).length > 0) {
+    report({
+      step: "addFields",
+      message: `フィールドを ${Object.keys(additions).length} 件追加します`,
+      detail: Object.keys(additions).join(", "),
+    });
+    const result = await kintone.call((client) =>
+      client.app.addFormFields({ app: appId, properties: additions }),
+    );
+    revision = result.revision;
+  }
+
+  if (diff.updated.length > 0) {
+    // 変わったフィールドだけを送る (この API は部分指定でよい)。
+    const properties = toFieldProperties(diff.updated.map((entry) => entry.field));
+    report({
+      step: "addFields",
+      message: `フィールドを ${diff.updated.length} 件変更します`,
+      detail: diff.updated.map((entry) => entry.code).join(", "),
+    });
+    const result = await kintone.call((client) =>
+      client.app.updateFormFields({ app: appId, properties, revision }),
+    );
+    revision = result.revision;
+  }
+
+  if (diff.app.length > 0) {
+    const settings = toAppSettings(desired);
+    if (settings !== null) {
+      report({
+        step: "updateSettings",
+        message: "アプリの設定を変更します",
+        detail: diff.app.map((change) => change.key).join(", "),
+      });
+      const result = await kintone.call((client) =>
+        client.app.updateAppSettings({
+          app: appId,
+          revision,
+          name: desired.name,
+          ...settings,
+        } as Parameters<KintoneRestAPIClient["app"]["updateAppSettings"]>[0]),
+      );
+      revision = result.revision;
+    }
+  }
+
+  if (diff.views.added.length + diff.views.updated.length + diff.views.removed.length > 0) {
+    report({
+      step: "updateViews",
+      message: "一覧を変更します",
+      detail: `+${diff.views.added.length} ~${diff.views.updated.length} -${diff.views.removed.length}`,
+    });
+    const result = await kintone.call((client) =>
+      client.app.updateViews({
+        app: appId,
+        revision,
+        views: toViews(desired.views ?? []),
+      } as Parameters<KintoneRestAPIClient["app"]["updateViews"]>[0]),
+    );
+    revision = result.revision;
+  }
+
+  if (orphanCodes.length > 0 || diff.layout.willApply) {
+    {
+      report({
+        step: "updateLayout",
+        message:
+          orphanCodes.length > 0
+            ? `${orphanCodes.length} 件のフィールドを削除候補へ移します`
+            : "フォームの並びを組み直します",
+        detail: orphanCodes.join(", "),
+      });
+
+      const layoutNow = await kintone.call((client) =>
+        client.app.getFormLayout({ app: appId, preview: true }),
+      );
+      const layout = buildUpdatedLayout({
+        current: layoutNow.layout as unknown as LayoutRow[],
+        desired: desired.fields.map((field) => ({
+          type: field.type,
+          code: resolveFieldCode(field),
+        })),
+        orphans: orphanCodes,
+        regroup: diff.layout.willApply,
+        maxPerRow: resolveLayout(desired).maxPerRow,
+        groups: fieldGroups(desired),
+      });
+
+      const result = await kintone.call((client) =>
+        client.app.updateFormLayout({
+          app: appId,
+          revision,
+          layout,
+        } as Parameters<KintoneRestAPIClient["app"]["updateFormLayout"]>[0]),
+      );
+      revision = result.revision;
+    }
+  }
+
+  if (options.deploy !== true) {
+    report({
+      step: "deploy",
+      message: "動作テスト環境まで反映しました (運用環境へは反映していません)",
+      detail: "kintone の画面で「変更を確認」してから、--deploy を付けて再実行してください",
+    });
+    return {
+      appId,
+      appName: pulled.appName,
+      diff,
+      revision,
+      deployed: false,
+      warnings: pulled.warnings,
+      pendingOrphans: orphanCodes,
+    };
+  }
+
+  report({ step: "deploy", message: "運用環境へ反映します", detail: `revision=${revision}` });
+  await kintone.call((client) => client.app.deployApp({ apps: [{ app: appId, revision }] }));
+
+  report({ step: "polling", message: "反映の完了を待っています" });
+  await waitForDeployment(appId, kintone, options.polling, report);
+
+  return {
+    appId,
+    appName: pulled.appName,
+    diff,
+    revision,
+    deployed: true,
+    warnings: pulled.warnings,
+    pendingOrphans: orphanCodes,
+  };
+}
+

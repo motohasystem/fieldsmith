@@ -14,6 +14,12 @@ export interface RecordedCall {
 }
 
 export interface KintoneMockOptions {
+  /** 既存アプリを模す。update / pull のテストで使う。 */
+  readonly existing?: {
+    readonly settings?: Record<string, unknown>;
+    readonly properties?: Record<string, Record<string, unknown>>;
+    readonly views?: Record<string, Record<string, unknown>>;
+  };
   /** getFormLayout が返すレイアウト。 */
   readonly layout?: unknown[];
   /** ゲストスペース ID。指定するとゲストスペース用の URL で待ち受ける。 */
@@ -71,12 +77,71 @@ export function setupKintoneMock(options: KintoneMockOptions = {}) {
       if (failure) return failure;
       return HttpResponse.json({ revision: String(revision++) });
     }),
+    // 既存アプリの読み取り。pull / update は動作テスト環境を見るので両方に応える。
+    http.get(`${prefix}/app/settings.json`, () => {
+      calls.push({ path: "getSettings", method: "GET", body: {} });
+      return HttpResponse.json({
+        name: "既存アプリ",
+        description: "",
+        theme: "WHITE",
+        titleField: { selectionMode: "AUTO" },
+        revision: "1",
+        ...(options.existing?.settings ?? {}),
+      });
+    }),
+    http.get(`${prefix}/app/form/fields.json`, () => {
+      calls.push({ path: "getFields", method: "GET", body: {} });
+      return HttpResponse.json({ properties: options.existing?.properties ?? {}, revision: "1" });
+    }),
+    http.get(`${prefix}/app/views.json`, () => {
+      calls.push({ path: "getViews", method: "GET", body: {} });
+      return HttpResponse.json({ views: options.existing?.views ?? {}, revision: "1" });
+    }),
+    http.get(`${BASE_URL}/k/v1/app/settings.json`, () => {
+      calls.push({ path: "getSettings", method: "GET", body: {} });
+      return HttpResponse.json({
+        name: "既存アプリ",
+        description: "",
+        theme: "WHITE",
+        titleField: { selectionMode: "AUTO" },
+        revision: "1",
+        ...(options.existing?.settings ?? {}),
+      });
+    }),
+    http.get(`${BASE_URL}/k/v1/app/form/fields.json`, () => {
+      calls.push({ path: "getFields", method: "GET", body: {} });
+      return HttpResponse.json({ properties: options.existing?.properties ?? {}, revision: "1" });
+    }),
+    http.get(`${BASE_URL}/k/v1/app/form/layout.json`, () => {
+      calls.push({ path: "getLiveLayout", method: "GET", body: {} });
+      return HttpResponse.json({
+        layout: Object.keys(options.existing?.properties ?? {}).map((code) => ({
+          type: "ROW",
+          fields: [{ code, type: options.existing!.properties![code]!["type"] }],
+        })),
+        revision: "1",
+      });
+    }),
+    http.get(`${BASE_URL}/k/v1/app/views.json`, () => {
+      calls.push({ path: "getViews", method: "GET", body: {} });
+      return HttpResponse.json({ views: options.existing?.views ?? {}, revision: "1" });
+    }),
+    http.put(`${prefix}/app/form/fields.json`, async ({ request }) => {
+      await record(request, "updateFields");
+      const failure = maybeFail("updateFields");
+      if (failure) return failure;
+      return HttpResponse.json({ revision: String(revision++) });
+    }),
     http.get(`${prefix}/app/form/layout.json`, ({ request }) => {
       calls.push({ path: "getLayout", method: "GET", body: {} });
       const failure = maybeFail("getLayout");
       if (failure) return failure;
       // フィールド追加直後の kintone は 1 行 1 フィールドで返す。
-      return HttpResponse.json({ revision: String(revision), layout: options.layout ?? [] });
+      const fallback = Object.entries(options.existing?.properties ?? {}).map(([code, p]) => ({
+        type: "ROW",
+        fields: [{ code, type: p["type"] }],
+      }));
+      return HttpResponse.json({ revision: String(revision), layout: options.layout ?? fallback });
     }),
     http.put(`${prefix}/app/form/layout.json`, async ({ request }) => {
       await record(request, "updateLayout");

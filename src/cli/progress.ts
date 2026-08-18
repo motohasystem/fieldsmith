@@ -11,7 +11,11 @@ const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "
 const CLEAR_LINE = "\r[2K";
 
 export interface StatusLine {
-  /** 表示中の文言を差し替える。 */
+  /**
+   * 動いていることを示す表示を差し替える。
+   * TTY では 1 行を書き換え、そうでなければ何も出さない
+   * (履歴として残したいものは log を使う)。
+   */
   update(text: string): void;
   /** 履歴として残る行を出す。ステータス行はその下に描き直す。 */
   log(line: string): void;
@@ -64,11 +68,8 @@ export function startStatusLine(initial: string, options: StatusLineOptions = {}
     update(next: string): void {
       if (finished || next === text) return;
       text = next;
-      if (isTty) {
-        render();
-      } else {
-        stream.write(`${next}\n`);
-      }
+      // 非 TTY では動きを見せる意味が無い。log と二重に出るのも防ぐ。
+      if (isTty) render();
     },
     log(line: string): void {
       if (isTty) {

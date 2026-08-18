@@ -6,7 +6,14 @@ import { KintoneRestAPIError } from "@kintone/rest-api-client";
 import { Command } from "commander";
 import { ConfigError, loadDotEnv, loadKintoneConfig, type KintoneConfig } from "../config.js";
 import { createAuthenticatedKintone, KintoneRequestError } from "../kintone/client.js";
-import { DeployError, deployAppSpec, pullApp, type DeployProgress } from "../kintone/deploy.js";
+import {
+  DeployError,
+  deployAppSpec,
+  pullApp,
+  UnsupportedUpdateError,
+  updateApp,
+  type DeployProgress,
+} from "../kintone/deploy.js";
 import {
   buildAuthorizationRequest,
   exchangeAuthorizationCode,
@@ -73,6 +80,7 @@ async function generateWithProgress(prompt: string, model: string | undefined) {
   const status = startStatusLine("リクエストを送信しました (サーバーの応答を待っています)");
   let thinking = "";
   let connected = false;
+  let wroteFirstChunk = false;
 
   // 応答が来ないまま長引いた場合に、待っているだけだと分かるようにする。
   // TTY ではスピナーが経過秒を出し続けるので、ここは間隔を空けて十分。
@@ -92,6 +100,8 @@ async function generateWithProgress(prompt: string, model: string | undefined) {
         clearInterval(stallTimer);
         trace(`モデル: ${event.model}`);
         trace(`リクエスト ID: ${event.requestId ?? "(取得できず)"}`);
+        // 節目は履歴に残す (非 TTY では update が表示されないため)。
+        status.log("  設計を考えています");
         status.update("設計を考えています");
         break;
       case "schemaFallback":
@@ -109,6 +119,10 @@ async function generateWithProgress(prompt: string, model: string | undefined) {
         );
         break;
       case "writing":
+        if (wroteFirstChunk === false) {
+          wroteFirstChunk = true;
+          status.log("  設計を書き出しています");
+        }
         status.update(`設計を書き出しています (${event.totalChars} 文字)`);
         break;
       case "done":
@@ -250,6 +264,79 @@ program
         hasChanges: !isEmptyDiff(diff),
         diff,
         warnings: pulled.warnings,
+      });
+    });
+  });
+
+program
+  .command("update")
+  .description("既存アプリを AppSpec の内容に近づける (既定では運用環境へ反映しない)")
+  .argument("<appId>", "アプリ ID")
+  .argument("<spec>", "目標とする AppSpec の JSON ファイル")
+  .option("--deploy", "運用環境まで反映する")
+  .action(async (appId: string, specPath: string, options: { deploy?: boolean }) => {
+    await run("update", async () => {
+      const desired = readSpecFile(specPath);
+      const config = config_();
+      const kintone = createAuthenticatedKintone({ config, env: process.env });
+
+      const status = startStatusLine("差分を調べています");
+      let result;
+      try {
+        result = await updateApp(appId, desired, kintone, {
+          ...(options.deploy === true ? { deploy: true } : {}),
+          onProgress: (progress) => {
+            // 「動作テスト環境まで反映しました」は後段でまとめて案内するので、
+            // ここでは履歴に残さない (同じ文言が二度出てしまう)。
+            if (progress.step !== "deploy" || options.deploy === true) {
+              status.log(`  ${progress.message}`);
+              if (progress.detail !== undefined && isVerbose()) status.log(`    ${progress.detail}`);
+            }
+            status.update(progress.message);
+          },
+        });
+      } finally {
+        status.done();
+      }
+
+      if (isEmptyDiff(result.diff) || result.revision === "-1") {
+        say(`アプリ ${appId}「${result.appName}」に適用する変更はありません。`);
+        if (result.diff.orphaned.length > 0) {
+          say(
+            `  ${result.diff.orphaned.length} 件のフィールドは、すでに削除候補グループに入っています。`,
+          );
+        }
+      } else {
+        say("");
+        say("適用した内容:");
+        for (const line of describeDiff(result.diff)) say(line);
+
+        if (result.pendingOrphans.length > 0) {
+          say("");
+          say(`- ${result.pendingOrphans.length} 件のフィールドを「削除候補」グループに移しました。`);
+          say("  削除はしていないので、データは残っています。");
+        }
+        if (!result.deployed) {
+          say("");
+          say("動作テスト環境まで反映しました。運用環境にはまだ反映していません。");
+          say(`  ${config.baseUrl}/k/${appId}/ で「変更を確認」してください。`);
+          say(`  問題なければ --deploy を付けて再実行します。`);
+        } else {
+          say("");
+          say(`✓ 運用環境へ反映しました。`);
+          say(`  ${config.baseUrl}/k/${appId}/`);
+        }
+      }
+
+      emitSuccess({
+        command: "update",
+        app: { id: appId, name: result.appName, url: `${config.baseUrl}/k/${appId}/` },
+        hasChanges: result.revision !== "-1",
+        deployed: result.deployed,
+        movedToOrphanGroup: result.pendingOrphans,
+        revision: result.revision,
+        diff: result.diff,
+        warnings: result.warnings,
       });
     });
   });
@@ -581,6 +668,10 @@ async function run(command: string, action: () => Promise<void>): Promise<void> 
     if (error instanceof OAuthError) {
       // ReauthRequiredError も OAuthError を継承している。
       emitFailure({ command, kind: "auth", message: error.message });
+      return;
+    }
+    if (error instanceof UnsupportedUpdateError) {
+      emitFailure({ command, kind: "validation", message: error.message });
       return;
     }
     if (error instanceof DeployError) {

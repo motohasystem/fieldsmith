@@ -188,12 +188,42 @@ describe("アプリ設定の差分", () => {
   it("一般設定の変化を捉える", () => {
     const diff = diffAppSpec(
       spec([text("案件名")], { settings: { enableComments: true } }),
-      spec([text("案件名")], { settings: { titleFieldCode: "案件名" } }),
+      spec([text("案件名")], { settings: { enableComments: false, titleFieldCode: "案件名" } }),
     );
     expect(diff.app).toEqual([
-      { key: "settings.enableComments", from: true, to: undefined },
+      { key: "settings.enableComments", from: true, to: false },
       { key: "settings.titleFieldCode", from: undefined, to: "案件名" },
     ]);
+  });
+
+  /**
+   * kintone の設定変更 API は省略した項目を変えない。
+   * 「書かれていない = 現状維持」にしないと、実際には何も起きないのに
+   * 差分が永遠に消えないアプリができてしまう。
+   */
+  it("目標に書かれていない項目は現状維持として、差分にしない", () => {
+    const diff = diffAppSpec(
+      spec([text("案件名")], { theme: "WHITE", description: "説明", settings: { enableComments: true } }),
+      spec([text("案件名")]),
+    );
+    expect(diff.app).toEqual([]);
+    expect(isEmptyDiff(diff)).toBe(true);
+  });
+
+  it("フィールドでも、書かれていない項目は現状維持", () => {
+    const diff = diffAppSpec(
+      spec([text("案件名", { required: true, maxLength: 64 })]),
+      spec([text("案件名")]),
+    );
+    expect(diff.updated).toEqual([]);
+  });
+
+  it("明示的に書けば変えられる", () => {
+    const diff = diffAppSpec(
+      spec([text("案件名", { required: true })]),
+      spec([text("案件名", { required: false })]),
+    );
+    expect(diff.updated[0]!.changes).toEqual([{ key: "required", from: true, to: false }]);
   });
 });
 
