@@ -104,12 +104,72 @@ describe("フィールドの差分", () => {
     expect(diff.updated).toEqual([]);
   });
 
-  it("並べ替えただけなら差分にしない", () => {
+  it("並べ替えても、追加や削除候補には数えない", () => {
+    // 対応付けはコードで行うので、JSON 内の順序で誤判定しない。
+    const diff = diffAppSpec(spec([text("a"), text("b")]), spec([text("b"), text("a")]));
+    expect(diff.added).toEqual([]);
+    expect(diff.orphaned).toEqual([]);
+    expect(diff.updated).toEqual([]);
+  });
+});
+
+describe("フォームの並びの差分", () => {
+  const grouped = (fields: unknown[], over: Record<string, unknown> = {}) =>
+    spec(fields, { layout: "grouped", ...over });
+
+  it("並べ替えを差分として拾う", () => {
+    // 拾わないと「並べ替えたのに差分なし」と言われ、update しても何も起きない。
+    const diff = diffAppSpec(grouped([text("a"), text("b")]), grouped([text("b"), text("a")]));
+    expect(diff.layout.orderChanged).toBe(true);
+    expect(diff.layout.willApply).toBe(true);
+    expect(isEmptyDiff(diff)).toBe(false);
+    expect(describeDiff(diff).join()).toMatch(/並びを組み直す.*並び順/);
+  });
+
+  it("group の変更を差分として拾う", () => {
     const diff = diffAppSpec(
-      spec([text("a"), text("b")]),
-      spec([text("b"), text("a")]),
+      grouped([text("a", { group: "X" }), text("b", { group: "X" })]),
+      grouped([text("a", { group: "Y" }), text("b", { group: "Z" })]),
     );
+    expect(diff.layout.groupsChanged).toBe(true);
+    expect(describeDiff(diff).join()).toMatch(/group/);
+  });
+
+  it("layout の指定の変更を差分として拾う", () => {
+    const diff = diffAppSpec(spec([text("a")], { layout: "stacked" }), grouped([text("a")]));
+    expect(diff.layout.modeChanged).toBe(true);
+    expect(diff.layout.from).toBe("stacked");
+    expect(diff.layout.to).toBe("grouped (最大 3 列)");
+  });
+
+  it("列数の変更も拾う", () => {
+    const diff = diffAppSpec(
+      grouped([text("a")]),
+      spec([text("a")], { layout: { mode: "grouped", maxPerRow: 2 } }),
+    );
+    expect(diff.layout.modeChanged).toBe(true);
+  });
+
+  it("目標が stacked なら、並びの違いがあっても適用しない", () => {
+    // stacked は「既存の並びに手を触れない」指定。何も起きないので差分に数えない。
+    const diff = diffAppSpec(
+      spec([text("a"), text("b")], { layout: "stacked" }),
+      spec([text("b"), text("a")], { layout: "stacked" }),
+    );
+    expect(diff.layout.orderChanged).toBe(true);
+    expect(diff.layout.willApply).toBe(false);
     expect(isEmptyDiff(diff)).toBe(true);
+  });
+
+  it("追加・削除だけでは並べ替えたことにしない", () => {
+    // 両方に在るフィールドの相対順序だけを見る。
+    const diff = diffAppSpec(grouped([text("a"), text("b")]), grouped([text("a"), text("c"), text("b")]));
+    expect(diff.layout.orderChanged).toBe(false);
+  });
+
+  it("変化が無ければ組み直さない", () => {
+    const one = grouped([text("a", { group: "X" })]);
+    expect(diffAppSpec(one, one).layout.willApply).toBe(false);
   });
 });
 

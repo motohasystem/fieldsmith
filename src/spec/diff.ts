@@ -1,4 +1,4 @@
-import { resolveFieldCode, type AppSpec, type ViewSpec } from "./appSpec.js";
+import { fieldGroups, resolveFieldCode, resolveLayout, type AppSpec, type ViewSpec } from "./appSpec.js";
 import type { FieldSpec } from "./fieldSpec.js";
 
 /**
@@ -55,6 +55,28 @@ export interface ViewDiff {
   readonly removed: readonly string[];
 }
 
+/**
+ * フォームの並びの変化。
+ *
+ * フィールドの並び順・group・layout の指定は、個々のフィールド設定には現れない。
+ * 拾わないと「並べ替えたのに差分なしと言われる」ことになるので、独立して見る。
+ */
+export interface LayoutDiff {
+  /** 表示上の指定 (例: "stacked" → "grouped (最大 3 列)")。 */
+  readonly from: string;
+  readonly to: string;
+  readonly modeChanged: boolean;
+  /** 両方に在るフィールドの並び順が変わったか。 */
+  readonly orderChanged: boolean;
+  /** group の割り当てが変わったか。 */
+  readonly groupsChanged: boolean;
+  /**
+   * 実際にレイアウトを組み直すか。
+   * 目標が `stacked` の場合は既存の並びに手を触れないので、変化があっても適用しない。
+   */
+  readonly willApply: boolean;
+}
+
 export interface AppDiff {
   readonly added: readonly FieldAddition[];
   readonly updated: readonly FieldUpdate[];
@@ -63,6 +85,7 @@ export interface AppDiff {
   /** アプリ名・説明・テーマ・一般設定の変化。 */
   readonly app: readonly Change[];
   readonly views: ViewDiff;
+  readonly layout: LayoutDiff;
 }
 
 /** 変更が 1 つも無いか。 */
@@ -75,7 +98,9 @@ export function isEmptyDiff(diff: AppDiff): boolean {
     diff.app.length === 0 &&
     diff.views.added.length === 0 &&
     diff.views.updated.length === 0 &&
-    diff.views.removed.length === 0
+    diff.views.removed.length === 0 &&
+    // 適用されない並びの違いは、差分として数えない (何も起きないため)。
+    !diff.layout.willApply
   );
 }
 
@@ -123,6 +148,40 @@ export function diffAppSpec(current: AppSpec, desired: AppSpec): AppDiff {
     orphaned,
     app: compareAppSettings(current, desired),
     views: compareViews(current.views ?? [], desired.views ?? []),
+    layout: compareLayout(current, desired),
+  };
+}
+
+function compareLayout(current: AppSpec, desired: AppSpec): LayoutDiff {
+  const currentLayout = resolveLayout(current);
+  const desiredLayout = resolveLayout(desired);
+
+  const describe = (layout: { mode: string; maxPerRow: number }): string =>
+    layout.mode === "grouped" ? `grouped (最大 ${layout.maxPerRow} 列)` : "stacked";
+
+  const currentCodes = current.fields.map(resolveFieldCode);
+  const desiredCodes = desired.fields.map(resolveFieldCode);
+  const shared = new Set(currentCodes.filter((code) => desiredCodes.includes(code)));
+
+  const orderChanged =
+    JSON.stringify(currentCodes.filter((code) => shared.has(code))) !==
+    JSON.stringify(desiredCodes.filter((code) => shared.has(code)));
+
+  const currentGroups = fieldGroups(current);
+  const desiredGroups = fieldGroups(desired);
+  const groupsChanged = [...shared].some((code) => currentGroups[code] !== desiredGroups[code]);
+
+  const modeChanged =
+    currentLayout.mode !== desiredLayout.mode || currentLayout.maxPerRow !== desiredLayout.maxPerRow;
+
+  return {
+    from: describe(currentLayout),
+    to: describe(desiredLayout),
+    modeChanged,
+    orderChanged,
+    groupsChanged,
+    // stacked は「既存の並びに手を触れない」指定なので、違いがあっても組み直さない。
+    willApply: desiredLayout.mode === "grouped" && (modeChanged || orderChanged || groupsChanged),
   };
 }
 
@@ -233,6 +292,14 @@ export function describeDiff(diff: AppDiff): string[] {
   }
   for (const orphan of diff.orphaned) {
     lines.push(`  - ${orphan.code} (${orphan.type}) を削除候補へ`);
+  }
+  if (diff.layout.willApply) {
+    const reasons = [
+      diff.layout.modeChanged ? `指定: ${diff.layout.from} → ${diff.layout.to}` : null,
+      diff.layout.orderChanged ? "並び順" : null,
+      diff.layout.groupsChanged ? "group" : null,
+    ].filter((reason): reason is string => reason !== null);
+    lines.push(`  ~ フォームの並びを組み直す (${reasons.join(", ")})`);
   }
   for (const view of diff.views.added) {
     lines.push(`  + 一覧「${view.name}」を追加`);
