@@ -2,9 +2,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import Anthropic from "@anthropic-ai/sdk";
+import { KintoneRestAPIError } from "@kintone/rest-api-client";
 import { Command } from "commander";
 import { ConfigError, loadDotEnv, loadKintoneConfig, type KintoneConfig } from "../config.js";
-import { createAuthenticatedKintone } from "../kintone/client.js";
+import { createAuthenticatedKintone, KintoneRequestError } from "../kintone/client.js";
 import { DeployError, deployAppSpec, type DeployProgress } from "../kintone/deploy.js";
 import {
   buildAuthorizationRequest,
@@ -31,6 +32,9 @@ import {
 import { describeRows, groupIntoRows } from "../spec/layout.js";
 import { toKintonePayloads } from "../spec/toKintone.js";
 import { backgroundFor, renderIcon } from "../icon/render.js";
+import { EXIT_HINT } from "./exit.js";
+import { emitFailure, emitSuccess, isJsonMode, say, setJsonMode } from "./output.js";
+import { appSpecExample, appSpecJsonSchema, appSpecReference } from "./schema.js";
 import { startStatusLine, tailLine } from "./progress.js";
 import { LARGE_PROMPT_CHARS, PromptInputError, resolvePrompt } from "./promptInput.js";
 
@@ -42,7 +46,9 @@ program
     "AppSpec (JSON) から kintone アプリを何度でも作る CLI。AppSpec は要件の文章からも作れる。",
   )
   .version("0.1.0")
-  .option("-v, --verbose", "何をしているかを詳しく表示する (思考の要約、API 呼び出し、revision の遷移)");
+  .option("-v, --verbose", "何をしているかを詳しく表示する (思考の要約、API 呼び出し、revision の遷移)")
+  .option("--json", "結果を JSON で stdout に出す。人間向けの表示は stderr に回る")
+  .hook("preAction", () => setJsonMode(program.opts()["json"] === true));
 
 /** --verbose はどのサブコマンドでも同じ意味なので、トップレベルの指定を見る。 */
 function isVerbose(): boolean {
@@ -125,6 +131,23 @@ async function generateWithProgress(prompt: string, model: string | undefined) {
 }
 
 program
+  .command("schema")
+  .description("AppSpec の書き方を出力する (AI エージェントに読ませる用)")
+  .option("--json", "完全な JSON Schema を出力する")
+  .option("--example", "そのまま deploy できる実例を出力する")
+  .action((options: { json?: boolean; example?: boolean }) => {
+    if (options.example === true) {
+      process.stdout.write(`${JSON.stringify(appSpecExample(), null, 2)}\n`);
+      return;
+    }
+    if (options.json === true || isJsonMode()) {
+      process.stdout.write(`${JSON.stringify(appSpecJsonSchema(), null, 2)}\n`);
+      return;
+    }
+    process.stdout.write(`${appSpecReference()}\n`);
+  });
+
+program
   .command("deploy")
   .description("AppSpec を kintone にデプロイする。同じ AppSpec から何個でも作れる")
   .argument("<spec>", "AppSpec の JSON ファイル")
@@ -134,7 +157,7 @@ program
   .option("--guest-space <id>", "ゲストスペース ID")
   .option("--revert-on-failure", "途中で失敗した場合に動作テスト環境の変更を破棄する")
   .action(async (specPath: string, options: DeployCommandOptions) => {
-    await run(async () => {
+    await run("deploy", async () => {
       const spec = readSpecFile(specPath);
       await deployWithOptions(spec, options);
     });
@@ -145,13 +168,14 @@ program
   .description("アプリの運用環境への反映状況を確認する")
   .argument("<appId>", "アプリ ID")
   .action(async (appId: string) => {
-    await run(async () => {
+    await run("status", async () => {
       const config = config_();
       const kintone = createAuthenticatedKintone({ config, env: process.env });
       const { apps } = await kintone.call((client) => client.app.getDeployStatus({ apps: [appId] }));
       for (const app of apps) {
-        console.log(`アプリ ${app.app}: ${app.status}`);
+        say(`アプリ ${app.app}: ${app.status}`);
       }
+      emitSuccess({ command: "status", apps });
     });
   });
 
@@ -159,15 +183,15 @@ program
   .command("login")
   .description("kintone の OAuth 認可を行い、トークンを保存する (deploy に必要)")
   .action(async () => {
-    await run(async () => {
+    await run("login", async () => {
       const config = config_();
       const { url, state } = buildAuthorizationRequest(config);
 
-      console.log("次の URL をブラウザで開き、アクセスを許可してください:\n");
-      console.log(`  ${url}\n`);
-      console.log(`要求するスコープ: ${REQUIRED_SCOPE}`);
-      console.log("許可すると、登録済みのリダイレクト先へ転送されます。");
-      console.log("転送先のアドレスバーの URL を、そのままここに貼り付けてください。\n");
+      say("次の URL をブラウザで開き、アクセスを許可してください:\n");
+      say(`  ${url}\n`);
+      say(`要求するスコープ: ${REQUIRED_SCOPE}`);
+      say("許可すると、登録済みのリダイレクト先へ転送されます。");
+      say("転送先のアドレスバーの URL を、そのままここに貼り付けてください。\n");
 
       const rl = createInterface({ input: process.stdin, output: process.stdout });
       const redirected = await rl.question("リダイレクト先の URL: ");
@@ -177,8 +201,9 @@ program
       const token = await exchangeAuthorizationCode(config, code);
       saveToken(config.baseUrl, token, process.env);
 
-      console.log(`\n✓ ${config.baseUrl} の認証情報を保存しました。`);
-      console.log("  アクセストークンは 1 時間で失効しますが、以降は自動で更新されます。");
+      say(`\n✓ ${config.baseUrl} の認証情報を保存しました。`);
+      say("  アクセストークンは 1 時間で失効しますが、以降は自動で更新されます。");
+      emitSuccess({ command: "login", baseUrl: config.baseUrl });
     });
   });
 
@@ -186,14 +211,15 @@ program
   .command("logout")
   .description("保存済みのトークンを破棄する")
   .action(async () => {
-    await run(async () => {
+    await run("logout", async () => {
       const config = config_();
       const cleared = clearToken(config.baseUrl, process.env);
-      console.log(
+      say(
         cleared
           ? `✓ ${config.baseUrl} の認証情報を破棄しました。`
           : `${config.baseUrl} の認証情報は保存されていません。`,
       );
+      emitSuccess({ command: "logout", baseUrl: config.baseUrl, cleared });
     });
   });
 
@@ -205,18 +231,24 @@ program
   .option("-o, --out <path>", "生成した AppSpec の保存先。省略時は標準出力")
   .option("--model <model>", "使用するモデル")
   .action(async (prompt: string | undefined, options: { out?: string; model?: string; promptFile?: string }) => {
-    await run(async () => {
+    await run("plan", async () => {
       const input = readPrompt(prompt, options.promptFile);
       const spec = await generateWithProgress(input.text, options.model);
       const json = `${JSON.stringify(spec, null, 2)}\n`;
 
       if (options.out === undefined) {
-        process.stdout.write(json);
+        // --json のときは emitSuccess が spec を含むので二重に出さない。
+        if (!isJsonMode()) process.stdout.write(json);
       } else {
         writeFileSync(options.out, json, "utf-8");
-        console.log(`✓ ${options.out} に保存しました。`);
+        say(`✓ ${options.out} に保存しました。`);
         printSpecSummary(spec);
       }
+      emitSuccess({
+        command: "plan",
+        spec,
+        ...(options.out === undefined ? {} : { out: options.out }),
+      });
     });
   });
 
@@ -243,18 +275,19 @@ program
         promptFile?: string;
       },
     ) => {
-    await run(async () => {
+    await run("create", async () => {
       const input = readPrompt(prompt, options.promptFile);
       const spec = await generateWithProgress(input.text, options.model);
 
       printSpecSummary(spec);
       if (options.out !== undefined) {
         writeFileSync(options.out, `${JSON.stringify(spec, null, 2)}\n`, "utf-8");
-        console.log(`\nAppSpec を ${options.out} に保存しました。`);
+        say(`\nAppSpec を ${options.out} に保存しました。`);
       }
 
       if (options.dryRun !== true && options.yes !== true && !(await confirm("\nこの内容でデプロイしますか?"))) {
-        console.log("中止しました。");
+        say("中止しました。");
+        emitSuccess({ command: "create", deployed: false, spec });
         return;
       }
       await deployWithOptions(spec, options);
@@ -272,19 +305,20 @@ interface DeployCommandOptions {
 async function deployWithOptions(spec: AppSpec, options: DeployCommandOptions): Promise<void> {
   if (options.dryRun === true) {
     const payloads = toKintonePayloads(spec);
-    console.log("--dry-run のため送信しません。kintone に送る内容:\n");
+    say("--dry-run のため送信しません。kintone に送る内容:\n");
     if (spec.icon !== undefined) {
       // アイコンは fileKey がデプロイ時にしか決まらないので、ここでは生成結果だけ示す。
       const icon = renderIcon({
         glyph: spec.icon,
         background: spec.iconBackground ?? backgroundFor(spec.name),
       });
-      console.log(
+      say(
         `アイコン: ${spec.icon} を ${icon.mode === "emoji" ? "絵文字" : "文字"}として描画 ` +
           `(${Math.round(icon.png.length / 1024)}KB) → アップロード後に icon.file.fileKey として設定\n`,
       );
     }
-    console.log(JSON.stringify(payloads, null, 2));
+    say(JSON.stringify(payloads, null, 2));
+    emitSuccess({ command: "deploy", dryRun: true, appName: spec.name, payloads });
     return;
   }
 
@@ -306,7 +340,7 @@ async function deployWithOptions(spec: AppSpec, options: DeployCommandOptions): 
     ...(guestSpaceId === undefined ? {} : { guestSpaceId }),
   });
 
-  console.log(`「${spec.name}」をデプロイします (フィールド ${spec.fields.length} 件)`);
+  say(`「${spec.name}」をデプロイします (フィールド ${spec.fields.length} 件)`);
 
   // どのステップで待っているかと経過秒が常に動くようにする。
   // 各リクエストには上限時間があるので、無限に止まったままにはならない。
@@ -331,9 +365,17 @@ async function deployWithOptions(spec: AppSpec, options: DeployCommandOptions): 
     status.done();
   }
 
-  console.log(`\n✓ デプロイが完了しました。`);
-  console.log(`  アプリ ID: ${result.appId}`);
-  console.log(`  URL: ${config.baseUrl}/k/${result.appId}/`);
+  const url = `${config.baseUrl}/k/${result.appId}/`;
+  say(`\n✓ デプロイが完了しました。`);
+  say(`  アプリ ID: ${result.appId}`);
+  say(`  URL: ${url}`);
+
+  emitSuccess({
+    command: "deploy",
+    app: { id: result.appId, url, name: spec.name },
+    revision: result.revision,
+    fieldCount: spec.fields.length,
+  });
 }
 
 function readSpecFile(path: string): AppSpec {
@@ -354,25 +396,25 @@ function readSpecFile(path: string): AppSpec {
 }
 
 function printSpecSummary(spec: AppSpec): void {
-  console.log(`\nアプリ名: ${spec.name}`);
+  say(`\nアプリ名: ${spec.name}`);
   if (spec.icon !== undefined) {
-    console.log(`アイコン: ${spec.icon} (背景 ${spec.iconBackground ?? backgroundFor(spec.name)})`);
+    say(`アイコン: ${spec.icon} (背景 ${spec.iconBackground ?? backgroundFor(spec.name)})`);
   }
   if (spec.space !== undefined) {
-    console.log(`スペース: ${spec.space}`);
+    say(`スペース: ${spec.space}`);
   }
   if (spec.description !== undefined) {
-    console.log(`説明: ${spec.description}`);
+    say(`説明: ${spec.description}`);
   }
-  console.log(`フィールド (${spec.fields.length} 件):`);
+  say(`フィールド (${spec.fields.length} 件):`);
   for (const field of spec.fields) {
     const marks: string[] = [field.type];
     if (field.required === true) marks.push("必須");
     if ("options" in field) marks.push(field.options.join(" / "));
-    console.log(`  - ${field.label} [${marks.join(", ")}]`);
+    say(`  - ${field.label} [${marks.join(", ")}]`);
   }
   if (spec.views !== undefined) {
-    console.log(`一覧 (${spec.views.length} 件): ${spec.views.map((view) => view.name).join(", ")}`);
+    say(`一覧 (${spec.views.length} 件): ${spec.views.map((view) => view.name).join(", ")}`);
   }
 
   const layout = resolveLayout(spec);
@@ -383,9 +425,9 @@ function printSpecSummary(spec: AppSpec): void {
       spec.fields.map((field) => ({ type: field.type, code: resolveFieldCode(field) })),
       { maxPerRow: layout.maxPerRow, groups: fieldGroups(spec) },
     );
-    console.log(`フォームの並び (最大 ${layout.maxPerRow} 列 → ${rows.length} 行):`);
+    say(`フォームの並び (最大 ${layout.maxPerRow} 列 → ${rows.length} 行):`);
     for (const line of describeRows(rows)) {
-      console.log(`  ${line}`);
+      say(`  ${line}`);
     }
   }
 }
@@ -405,10 +447,10 @@ function readPrompt(argument: string | undefined, filePath: string | undefined) 
   const input = resolvePrompt({ argument, filePath });
 
   if (filePath !== undefined) {
-    console.log(`要件を ${input.source} から読み込みました (${input.text.length} 文字)`);
+    say(`要件を ${input.source} から読み込みました (${input.text.length} 文字)`);
   }
   if (input.text.length > LARGE_PROMPT_CHARS) {
-    console.log(
+    say(
       `  要件が長いため、生成に時間がかかるか、要点が薄まる可能性があります。` +
         ` 必要な部分に絞ることを検討してください。`,
     );
@@ -422,43 +464,67 @@ function config_(): KintoneConfig {
   return loadKintoneConfig(process.env);
 }
 
-/** コマンドの共通の入り口。想定内のエラーはスタックトレースを出さずに要点だけ伝える。 */
-async function run(action: () => Promise<void>): Promise<void> {
+/**
+ * コマンドの共通の入り口。
+ *
+ * 想定内のエラーはスタックトレースを出さず、**種類ごとに終了コードを分けて**返す。
+ * AI エージェントが「AppSpec を直す」「login する」「再試行する」を判断できるようにするため。
+ */
+async function run(command: string, action: () => Promise<void>): Promise<void> {
   try {
     await action();
   } catch (error) {
-    process.exitCode = 1;
-
     if (error instanceof AppSpecValidationError) {
-      console.error(`${error.message}:`);
-      for (const issue of error.issues) {
-        console.error(`  ${issue.path}: ${issue.message}`);
-      }
+      emitFailure({
+        command,
+        kind: "validation",
+        message: error.message,
+        issues: error.issues,
+      });
       return;
     }
-    if (
-      error instanceof ConfigError ||
-      error instanceof OAuthError ||
-      error instanceof DeployError ||
-      error instanceof AppSpecGenerationError ||
-      error instanceof PromptInputError ||
-      error instanceof CliError
-    ) {
-      console.error(error.message);
-      if (error instanceof AppSpecGenerationError && error.cause instanceof AppSpecValidationError) {
-        for (const issue of error.cause.issues) {
-          console.error(`  ${issue.path}: ${issue.message}`);
-        }
-      }
+    if (error instanceof ConfigError) {
+      emitFailure({ command, kind: "config", message: error.message });
+      return;
+    }
+    if (error instanceof OAuthError) {
+      // ReauthRequiredError も OAuthError を継承している。
+      emitFailure({ command, kind: "auth", message: error.message });
+      return;
+    }
+    if (error instanceof DeployError) {
+      // スコープ不足は「login し直す」なので認証側に寄せる。
+      const kind = /スコープ/.test(error.message) ? "auth" : "kintone";
+      emitFailure({ command, kind, message: error.message, appId: error.appId });
+      return;
+    }
+    if (error instanceof KintoneRestAPIError || error instanceof KintoneRequestError) {
+      emitFailure({ command, kind: "kintone", message: error.message });
+      return;
+    }
+    if (error instanceof AppSpecGenerationError) {
+      const issues =
+        error.cause instanceof AppSpecValidationError ? error.cause.issues : undefined;
+      emitFailure({
+        command,
+        kind: "generation",
+        message: error.message,
+        ...(issues === undefined ? {} : { issues }),
+      });
+      return;
+    }
+    if (error instanceof PromptInputError || error instanceof CliError) {
+      emitFailure({ command, kind: "input", message: error.message });
       return;
     }
     if (error instanceof Anthropic.APIError) {
-      // スタックトレースを見せても切り分けの役に立たないので、要点だけ出す。
-      console.error(`Claude API がエラーを返しました (HTTP ${error.status ?? "?"})`);
-      console.error(`  ${apiErrorMessage(error)}`);
-      if (error.requestID != null) {
-        console.error(`  リクエスト ID: ${error.requestID}`);
-      }
+      emitFailure({
+        command,
+        kind: "generation",
+        message:
+          `Claude API がエラーを返しました (HTTP ${error.status ?? "?"}): ${apiErrorMessage(error)}` +
+          (error.requestID == null ? "" : `\n  リクエスト ID: ${error.requestID}`),
+      });
       return;
     }
     throw error;

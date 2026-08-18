@@ -226,6 +226,21 @@ describe("一般設定", () => {
   });
 });
 
+describe("エージェントが直せるエラーメッセージ", () => {
+  // Zod 既定の "Required" では、何をどう書けばよいか伝わらない。
+  it.each([
+    [{ type: "DROP_DOWN", label: "確度" }, "options", /配列で指定してください.*高/],
+    [{ type: "CALC", label: "合計" }, "expression", /計算式を expression に指定/],
+    [{ type: "SINGLE_LINE_TEXT" }, "label", /フィールド名/],
+  ])("%o の不足を、直し方つきで伝える", (field, key, pattern) => {
+    const issues = expectIssues({ name: "アプリ", fields: [field] });
+    const issue = issues.find((i) => i.path.endsWith(key));
+    expect(issue).toBeDefined();
+    expect(issue!.message).toMatch(pattern);
+    expect(issue!.message).not.toBe("Required");
+  });
+});
+
 describe("意味のまとまり (group)", () => {
   it("同じ group のフィールドが離れていたら弾く", () => {
     // 離れていると横に並ばず、散らばった行になる。気付きにくいので事前に指摘する。

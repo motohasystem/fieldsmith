@@ -88,11 +88,12 @@ npm run vck -- create -f requirements.md
 | `deploy <spec.json>` | AppSpec を kintone にデプロイする |
 | `status <appId>` | 運用環境への反映状況を確認する |
 | `login` / `logout` | kintone の OAuth トークンの取得・破棄 |
+| `schema` | AppSpec の書き方を出力する（AI エージェント向け）|
 | `plan [prompt]` | 要件から AppSpec を生成する。`-o` で保存 |
 | `create [prompt]` | 生成 → 確認 → デプロイ |
 
 主なオプション: `--dry-run` / `--space <id>` / `--thread <id>` / `--guest-space <id>` /
-`--revert-on-failure` / `--model <model>` / `-f` / `-o` / `-y` / `-v`
+`--revert-on-failure` / `--model <model>` / `-f` / `-o` / `-y` / `-v` / `--json`
 
 ## セットアップ
 
@@ -309,6 +310,99 @@ memo
 2 以降で失敗した場合、アプリは**動作テスト環境にだけ存在し、運用環境には出ていない**。
 既定では調査できるようにアプリを残し、エラーにアプリ ID を含めて報告する。
 破棄したい場合は `--revert-on-failure` を付けて実行する。
+
+## AI エージェントから使う
+
+エージェントの仕事は **AppSpec を書くこと**で、デプロイはシェルコマンド 1 つ。
+そのために必要なものは揃えてある。
+
+### 1. 書き方を教える
+
+```bash
+vck schema             # 簡潔な一覧（これを読ませる）
+vck schema --json      # 完全な JSON Schema
+vck schema --example   # そのまま deploy できる実例
+```
+
+いずれも Zod の定義から導出しているので、実装とずれない。
+
+### 2. 認証なしで検証させる
+
+```bash
+vck deploy spec.json --dry-run --json
+```
+
+`--dry-run` は **kintone にも Claude にも接続しない**。
+エージェントは「書く → 検証 → 直す」を、資格情報なしで何度でも回せる。
+
+### 3. 結果を機械可読で受け取る
+
+`--json` を付けると、**stdout は JSON だけ**になり、進捗と人間向けの表示は stderr に回る。
+
+```json
+{
+  "ok": true,
+  "command": "deploy",
+  "app": { "id": "752", "url": "https://example.cybozu.com/k/752/", "name": "案件管理" },
+  "revision": "7",
+  "fieldCount": 6
+}
+```
+
+失敗も同じ形で返る。`hint` に次の一手が入る。
+
+```json
+{
+  "ok": false,
+  "command": "deploy",
+  "error": {
+    "kind": "validation",
+    "exitCode": 2,
+    "hint": "AppSpec を直して再実行する",
+    "message": "AppSpec の検証に失敗しました",
+    "issues": [
+      { "path": "fields.0.type", "message": "STATUS: プロセス管理の設定で追加される…" }
+    ]
+  }
+}
+```
+
+### 終了コード
+
+全部 1 で返すと「AppSpec を直す」のか「login する」のかが判別できないので、種類ごとに分けてある。
+
+| コード | `kind` | 次にすること |
+|---|---|---|
+| 0 | — | 成功 |
+| 1 | `unknown` | 想定外。メッセージを確認する |
+| 2 | `validation` | AppSpec を直して再実行する |
+| 3 | `auth` | `vck login` で認可をやり直す |
+| 4 | `config` | `.env` の設定を見直す |
+| 5 | `kintone` | 権限を確認するか、時間をおいて再試行する |
+| 6 | `generation` | 要件の書き方を変えて再実行する |
+| 7 | `input` | コマンドの引数を見直す |
+
+### 使い方の型
+
+```bash
+vck schema > /tmp/appspec-reference.md   # 1. 書き方を読む
+# 2. エージェントが spec.json を書く
+vck deploy spec.json --dry-run --json    # 3. 検証（認証不要）。exit 2 なら issues を読んで直す
+vck deploy spec.json --json              # 4. デプロイ
+```
+
+`login` だけは人間が一度やる必要がある（ブラウザで認可して URL を貼る）。
+それ以外はすべて非対話で動く。`create` は確認が入るので、エージェントからは `-y` を付ける。
+
+### MCP ではなく CLI にしている理由
+
+- エージェントの実作業は**ファイルを書くこと**。AppSpec は 100 行を超える JSON で、
+  ツール引数に埋めるより、ファイルとして残すほうがレビューでき、差分が見え、再利用できる
+- 検証ループ（`--dry-run`）が**資格情報なしで回る**
+- デプロイは進捗を出す長時間処理で、stderr へのストリーミングと相性がよい
+
+シェルの無いホストから使いたくなったら、`deployAppSpec` / `generateAppSpec` を包む
+薄い MCP サーバーを足せばよい。コアがライブラリとして分離してあるので、後から乗せられる。
 
 ## AppSpec を文章から作る
 

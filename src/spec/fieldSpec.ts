@@ -135,7 +135,7 @@ const baseFieldShape = {
   /** フィールドコード。省略時は label から導出する。 */
   code: codeSchema.optional(),
   /** フィールド名。 */
-  label: z.string().min(1).max(128),
+  label: z.string({ required_error: "label (フィールド名) は必須です" }).min(1).max(128),
   /** 必須項目にするか。 */
   required: z.boolean().optional(),
   /** 値の重複を禁止するか。 */
@@ -151,7 +151,11 @@ const baseFieldShape = {
 };
 
 const optionsSchema = z
-  .array(z.string().min(1).max(128))
+  .array(z.string().min(1).max(128), {
+    // キーごと無い場合、既定では英語の "Required" になる。直し方が伝わらないので置き換える。
+    required_error: '選択肢を options に配列で指定してください (例: ["高", "中", "低"])',
+    invalid_type_error: '選択肢は文字列の配列で指定してください (例: ["高", "中", "低"])',
+  })
   .min(1, "選択肢を 1 つ以上指定してください")
   .superRefine((options, ctx) => {
     const seen = new Set<string>();
@@ -244,7 +248,9 @@ const fieldSpecObjectSchema = z.discriminatedUnion("type", [
       ...baseFieldShape,
       type: z.literal("CALC"),
       /** 計算式。フィールドコードを使って記述する。 */
-      expression: z.string().min(1, "CALC には expression が必要です"),
+      expression: z.string({
+        required_error: "CALC には計算式を expression に指定してください (例: 単価 * 数量)",
+      }).min(1, "CALC には計算式を expression に指定してください (例: 単価 * 数量)"),
       format: z
         .enum(["NUMBER", "NUMBER_DIGIT", "DATETIME", "DATE", "TIME", "HOUR_MINUTE", "DAY_HOUR_MINUTE"])
         .optional(),
@@ -362,3 +368,30 @@ export function isOptionFieldType(type: string): boolean {
 }
 
 export type FieldSpec = z.infer<typeof fieldSpecSchema>;
+
+/** フィールド型ごとに指定できるキー。`vck schema` の出力に使う。 */
+export interface FieldTypeReference {
+  readonly type: SupportedFieldType;
+  readonly keys: readonly { readonly name: string; readonly required: boolean }[];
+}
+
+/**
+ * 対応フィールド型と、それぞれに指定できるキーの一覧を Zod のスキーマから導出する。
+ *
+ * 手で書いた表は必ず実装とずれるので、定義そのものから引き出す。
+ */
+export function describeFieldTypes(): FieldTypeReference[] {
+  return fieldSpecObjectSchema.options.map((member) => {
+    const shape = member.shape as Record<string, z.ZodTypeAny>;
+    const keys = Object.keys(shape)
+      .filter((name) => name !== "type")
+      .map((name) => ({ name, required: !shape[name]!.isOptional() }))
+      // 必須を先に、その中では定義順を保つ。
+      .sort((a, b) => Number(b.required) - Number(a.required));
+
+    return {
+      type: (shape["type"] as z.ZodLiteral<SupportedFieldType>).value,
+      keys,
+    };
+  });
+}
