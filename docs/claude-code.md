@@ -30,7 +30,14 @@ fieldsmith schema                              # 1. 書き方を読む（4,600 �
                                                # 2. Claude Code が spec.json を書く
 fieldsmith deploy spec.json --dry-run --json   # 3. 検証（資格情報なしで通る）
 fieldsmith deploy spec.json --json             # 4. デプロイ
+                                               # 5. 返ってきたアプリ ID を控える
 ```
+
+**1 を飛ばさせないこと。** フィールド型ごとに指定できるキーが違い、指定できない型もある。
+記憶で書き始めると、`--dry-run` で弾かれて往復が増える。
+
+**5 も忘れやすい。** `deploy` の応答に `app.id` が入っている。控えておかないと、
+あとで直したくなったときに対象のアプリが分からなくなる。
 
 **3 が肝。** kintone にも Claude にも接続しないので、無料・高速・副作用ゼロで
 「書く → 検証 → 直す」を何度でも回せる。失敗すると終了コード 2 と `issues` が返る。
@@ -115,10 +122,30 @@ fieldsmith update 123 current.json --deploy
 kintone アプリは [fieldsmith](https://github.com/motohasystem/fieldsmith) で扱う。
 AppSpec（JSON）を書いて `fieldsmith` に渡す。
 
-```bash
-npx fieldsmith schema                              # AppSpec の書き方
-npx fieldsmith deploy spec.json --dry-run --json   # 検証（資格情報なしで通る）
-npx fieldsmith deploy spec.json --json             # 新規作成
+### 手順
+
+1. **`npx fieldsmith schema` を実行して書き方を読む。**
+   記憶で書き始めない。フィールド型ごとに指定できるキーが違い、
+   指定できない型もあるので、毎回読んでから書く
+2. `kintone/<アプリ名>.json` に AppSpec を書く
+3. `npx fieldsmith deploy kintone/<アプリ名>.json --dry-run --json` で検証する
+4. 通ったら `--dry-run` を外してデプロイする
+5. **返ってきたアプリ ID を `kintone/apps.md` に記録する**
+
+### ファイルの置き場所
+
+```
+kintone/
+  <アプリ名>.json   ← AppSpec
+  apps.md          ← アプリ ID の対応表
+```
+
+`apps.md` はこの形で保つ。あとで `update` するときに ID が要る。
+
+```markdown
+| アプリ | ID | AppSpec |
+|---|---|---|
+| 経費精算 | 123 | kintone/経費精算.json |
 ```
 
 ### 決まり
@@ -129,6 +156,8 @@ npx fieldsmith deploy spec.json --json             # 新規作成
   終了コード 2 なら `error.issues` を読んで直す
 - **`--json` を付ける。** stdout が JSON だけになる（人間向けの表示は stderr）
 - `schema --json`（36,000 文字）は読まない。`schema`（4,600 文字）で足りる
+- **デプロイしたら必ずアプリ ID を `kintone/apps.md` に記録する。**
+  記録し忘れると、あとで直したくなったときに対象が分からなくなる
 
 ### 終了コード
 
@@ -143,11 +172,13 @@ npx fieldsmith deploy spec.json --json             # 新規作成
 
 ### 既存アプリを直すとき
 
+アプリ ID は `kintone/apps.md` から引く。分からなければ人に聞く。
+
 ```bash
-npx fieldsmith pull <appId> -o current.json   # 読み取りのみ
-# current.json を編集
-npx fieldsmith diff <appId> current.json      # 読み取りのみ
-npx fieldsmith update <appId> current.json    # 動作テスト環境まで
+npx fieldsmith pull <appId> -o kintone/<アプリ名>.json   # 読み取りのみ
+# 編集する
+npx fieldsmith diff <appId> kintone/<アプリ名>.json      # 読み取りのみ
+npx fieldsmith update <appId> kintone/<アプリ名>.json    # 動作テスト環境まで
 ```
 
 - **既存フィールドの `code` と `type` は変えない。** 変えるとデータが引き継がれない
