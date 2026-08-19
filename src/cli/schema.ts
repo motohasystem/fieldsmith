@@ -1,5 +1,5 @@
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { APP_THEMES, appSpecSchema } from "../spec/appSpec.js";
+import { APP_THEMES, appSpecSchema, BUILT_IN_FIELD_CODES } from "../spec/appSpec.js";
 import { describeFieldTypes, OPTION_FIELD_TYPES, UNADDABLE_FIELD_TYPES } from "../spec/fieldSpec.js";
 import { DEFAULT_MAX_PER_ROW } from "../spec/layout.js";
 
@@ -69,6 +69,11 @@ export function appSpecReference(): string {
       `必要なのは ${OPTION_FIELD_TYPES.map((t) => `\`${t}\``).join(" ")}。`,
   );
   lines.push("");
+  lines.push(
+    "`CALC` の `expression` には、**`fields` で定義したフィールドコード**を使う。" +
+      " 存在しないフィールドを参照していると検証で弾かれる。",
+  );
+  lines.push("");
 
   lines.push("## 指定できない型");
   lines.push("");
@@ -92,6 +97,18 @@ export function appSpecReference(): string {
   lines.push("| `date` | | CALENDAR で日付として使うフィールドコード |");
   lines.push("| `filterCond` | | 絞り込み条件（kintone のクエリ形式）|");
   lines.push("| `sort` | | 並び順（例: `更新日時 desc`）|");
+  lines.push("");
+  lines.push("`fields` `date` `title` に書けるのは、**`fields` で定義したフィールドコード**と、");
+  lines.push("次の組み込みフィールドだけ。");
+  lines.push("");
+  lines.push(
+    [...BUILT_IN_FIELD_CODES].map((code) => `\`${code}\``).join(" "),
+  );
+  lines.push("");
+  lines.push(
+    "**フィールドを `fields` から外したら、一覧の `fields` からも外すこと。**" +
+      " 参照が残っていると検証で弾かれる。",
+  );
   lines.push("");
 
   lines.push("## 一般設定 (settings)");

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EXIT, EXIT_HINT } from "../src/cli/exit.js";
 import { emitFailure, emitSuccess, say, setJsonMode } from "../src/cli/output.js";
 import { appSpecExample, appSpecJsonSchema, appSpecReference } from "../src/cli/schema.js";
-import { parseAppSpec } from "../src/spec/appSpec.js";
+import { BUILT_IN_FIELD_CODES, parseAppSpec } from "../src/spec/appSpec.js";
 import { describeFieldTypes, SUPPORTED_FIELD_TYPES, UNADDABLE_FIELD_TYPES } from "../src/spec/fieldSpec.js";
 import { toKintonePayloads } from "../src/spec/toKintone.js";
 
@@ -152,6 +152,18 @@ describe("fieldsmith schema", () => {
 
   it("認証なしで検証できることを案内する", () => {
     expect(appSpecReference()).toContain("--dry-run");
+  });
+
+  /**
+   * 一覧が存在しないフィールドコードを参照すると検証で弾かれる。
+   * 書き方を読んだだけでは避けられないので、制約として明示する。
+   */
+  it("一覧に書けるフィールドコードの範囲を示す", () => {
+    const reference = appSpecReference();
+    for (const code of BUILT_IN_FIELD_CODES) {
+      expect(reference).toContain(`\`${code}\``);
+    }
+    expect(reference).toMatch(/一覧の `fields` からも外すこと/);
   });
 
   it("JSON Schema を出力できる", () => {

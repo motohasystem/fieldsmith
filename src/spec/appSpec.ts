@@ -176,6 +176,21 @@ export const appSpecSchema = appSpecObjectSchema.superRefine((spec, ctx) => {
     }
   });
 
+  // 計算式が存在しないフィールドを参照していないか。
+  // 一覧の参照は見ているのに式を見ないと、フィールドを消したときに素通りしてしまう。
+  spec.fields.forEach((field, index) => {
+    if (field.type !== "CALC") return;
+    for (const reference of fieldReferencesIn(field.expression)) {
+      if (!codes.has(reference) && !BUILT_IN_FIELD_CODES.has(reference)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["fields", index, "expression"],
+          message: `計算式が参照している "${reference}" は fields に存在しません`,
+        });
+      }
+    }
+  });
+
   const titleFieldCode = spec.settings?.titleFieldCode;
   if (titleFieldCode !== undefined && !codes.has(titleFieldCode)) {
     ctx.addIssue({
@@ -309,4 +324,37 @@ export function resolveLayout(spec: AppSpec): { mode: "grouped" | "stacked"; max
   if (layout === undefined) return { mode: "grouped", maxPerRow: DEFAULT_MAX_PER_ROW };
   if (typeof layout === "string") return { mode: layout, maxPerRow: DEFAULT_MAX_PER_ROW };
   return { mode: layout.mode, maxPerRow: layout.maxPerRow };
+}
+
+/**
+ * kintone の関数。計算式に現れてもフィールド参照ではない。
+ * @see https://jp.cybozu.help/k/ja/user/app_settings/form/autocalc/formula.html
+ */
+const CALC_FUNCTIONS = new Set([
+  "SUM", "ROUND", "ROUNDDOWN", "ROUNDUP", "IF", "AND", "OR", "NOT",
+  "DATE_FORMAT", "YEN", "CONTAINS",
+]);
+
+/**
+ * 計算式からフィールドコードらしきものを取り出す。
+ *
+ * kintone の計算式は「フィールドコード・数値・演算子・関数・文字列」でできている。
+ * 完全な構文解析はせず、**識別子に見えるもの**を拾って、
+ * 数値・関数・文字列リテラルを除いたものをフィールド参照とみなす。
+ * 取りこぼすより誤検出のほうが困るので、判断に迷うものは参照とみなさない。
+ */
+export function fieldReferencesIn(expression: string): string[] {
+  // 文字列リテラルの中身はフィールド名ではない。
+  const withoutStrings = expression.replace(/"[^"]*"/g, " ").replace(/'[^']*'/g, " ");
+
+  const references = new Set<string>();
+  for (const token of withoutStrings.split(/[\s()+\-*/,<>=!&|]+/)) {
+    if (token === "") continue;
+    // 数値リテラル
+    if (/^[0-9.]+$/.test(token)) continue;
+    // 関数名 (直後に括弧が来るもの)
+    if (CALC_FUNCTIONS.has(token.toUpperCase())) continue;
+    references.add(token);
+  }
+  return [...references];
 }

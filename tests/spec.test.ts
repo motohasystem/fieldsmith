@@ -241,6 +241,55 @@ describe("エージェントが直せるエラーメッセージ", () => {
   });
 });
 
+describe("計算式の参照", () => {
+  const calc = (expression: string, extra: unknown[] = []) => ({
+    name: "アプリ",
+    fields: [
+      { type: "NUMBER", label: "単価", code: "単価" },
+      { type: "NUMBER", label: "数量", code: "数量" },
+      ...extra,
+      { type: "CALC", label: "合計", code: "合計", expression },
+    ],
+  });
+
+  it("存在しないフィールドの参照を弾く", () => {
+    // フィールドを消したときに素通りすると、kintone に投げてから失敗する。
+    const issues = expectIssues(calc("単価 * 税率"));
+    expect(issues[0]!.message).toMatch(/計算式が参照している "税率" は fields に存在しません/);
+    expect(issues[0]!.path).toBe("fields.2.expression");
+  });
+
+  it("存在するフィールドだけなら通る", () => {
+    expect(() => parseAppSpec(calc("単価 * 数量"))).not.toThrow();
+  });
+
+  it("演算子や括弧を含んでも誤検出しない", () => {
+    expect(() => parseAppSpec(calc("単価 * (1 + 数量 / 100) - 単価"))).not.toThrow();
+  });
+
+  it("数値リテラルを参照とみなさない", () => {
+    expect(() => parseAppSpec(calc("単価 * 1.08 + 100"))).not.toThrow();
+  });
+
+  it("関数名を参照とみなさない", () => {
+    expect(() => parseAppSpec(calc("ROUND(単価 * 数量, 0)"))).not.toThrow();
+    expect(() => parseAppSpec(calc("IF(数量 > 10, 単価 * 0.9, 単価)"))).not.toThrow();
+  });
+
+  it("文字列リテラルの中身を参照とみなさない", () => {
+    expect(() => parseAppSpec(calc('IF(数量 > 0, "在庫あり", "品切れ")'))).not.toThrow();
+  });
+
+  it("組み込みフィールドは参照できる", () => {
+    expect(() => parseAppSpec(calc("レコード番号 + 単価"))).not.toThrow();
+  });
+
+  it("複数の未定義を全部挙げる", () => {
+    const issues = expectIssues(calc("税率 * 割引率"));
+    expect(issues).toHaveLength(2);
+  });
+});
+
 describe("意味のまとまり (group)", () => {
   it("同じ group のフィールドが離れていたら弾く", () => {
     // 離れていると横に並ばず、散らばった行になる。気付きにくいので事前に指摘する。
