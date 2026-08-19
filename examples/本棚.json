@@ -1,0 +1,81 @@
+{
+  "name": "本棚（棚）",
+  "description": "物理的な本棚 1 枚 = 1 レコード。蔵書アプリはこのアプリの「棚ID」をキーにルックアップで棚の名称を引く。棚の名称はこのアプリが唯一の出どころ。",
+  "icon": "📚",
+  "theme": "GREEN",
+  "layout": {
+    "mode": "grouped",
+    "maxPerRow": 3
+  },
+  "fields": [
+    {
+      "code": "shelfId",
+      "type": "SINGLE_LINE_TEXT",
+      "label": "棚ID",
+      "required": true,
+      "unique": true,
+      "group": "識別"
+    },
+    {
+      "code": "code",
+      "type": "SINGLE_LINE_TEXT",
+      "label": "棚ラベル",
+      "group": "識別"
+    },
+    {
+      "code": "name",
+      "type": "SINGLE_LINE_TEXT",
+      "label": "棚の名称",
+      "required": true,
+      "group": "識別"
+    },
+    {
+      "code": "room",
+      "type": "SINGLE_LINE_TEXT",
+      "label": "設置場所",
+      "group": "設置"
+    },
+    {
+      "code": "level",
+      "type": "SINGLE_LINE_TEXT",
+      "label": "段",
+      "group": "設置"
+    },
+    {
+      "code": "photo",
+      "type": "FILE",
+      "label": "棚の写真"
+    },
+    {
+      "code": "photoAlt",
+      "type": "FILE",
+      "label": "別カット"
+    },
+    {
+      "code": "memo",
+      "type": "MULTI_LINE_TEXT",
+      "label": "メモ"
+    }
+  ],
+  "views": [
+    {
+      "name": "棚の一覧",
+      "type": "LIST",
+      "fields": [
+        "shelfId",
+        "code",
+        "name",
+        "room",
+        "level",
+        "更新日時"
+      ],
+      "sort": "shelfId asc"
+    }
+  ],
+  "settings": {
+    "titleFieldCode": "name",
+    "enableComments": true,
+    "enableThumbnails": true,
+    "enableInlineRecordEditing": true
+  }
+}

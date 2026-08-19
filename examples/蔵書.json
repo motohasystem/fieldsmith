@@ -1,0 +1,214 @@
+{
+  "name": "蔵書（本棚）",
+  "description": "蔵書アプリ。1 レコード = 1 冊。",
+  "theme": "BLUE",
+  "icon": "📚",
+  "fields": [
+    {
+      "code": "title",
+      "label": "書名",
+      "type": "SINGLE_LINE_TEXT",
+      "required": true
+    },
+    {
+      "code": "author",
+      "label": "著者",
+      "type": "SINGLE_LINE_TEXT",
+      "group": "書誌情報"
+    },
+    {
+      "code": "publisher",
+      "label": "出版社",
+      "type": "SINGLE_LINE_TEXT",
+      "group": "書誌情報"
+    },
+    {
+      "code": "publishedYear",
+      "label": "出版年",
+      "type": "NUMBER",
+      "digit": false,
+      "displayScale": 0,
+      "group": "書誌情報"
+    },
+    {
+      "code": "isbn",
+      "label": "ISBN",
+      "type": "SINGLE_LINE_TEXT",
+      "group": "識別"
+    },
+    {
+      "code": "bookshelfId",
+      "label": "本棚ID",
+      "type": "SINGLE_LINE_TEXT",
+      "required": true,
+      "unique": true,
+      "group": "識別"
+    },
+    {
+      "code": "readStatus",
+      "label": "読了ステータス",
+      "type": "DROP_DOWN",
+      "options": [
+        "未読",
+        "読書中",
+        "読了"
+      ],
+      "defaultValue": "未読",
+      "required": true,
+      "group": "読書"
+    },
+    {
+      "code": "rating",
+      "label": "評価",
+      "type": "DROP_DOWN",
+      "options": [
+        "★",
+        "★★",
+        "★★★",
+        "★★★★",
+        "★★★★★"
+      ],
+      "group": "読書"
+    },
+    {
+      "code": "ownership",
+      "label": "所有状態",
+      "type": "DROP_DOWN",
+      "options": [
+        "所有",
+        "貸出中",
+        "処分済み",
+        "電子"
+      ],
+      "defaultValue": "所有",
+      "required": true,
+      "group": "読書"
+    },
+    {
+      "code": "lentTo",
+      "label": "貸出先",
+      "type": "SINGLE_LINE_TEXT",
+      "group": "所在"
+    },
+    {
+      "code": "location",
+      "label": "所在（棚・部屋・段）",
+      "type": "SINGLE_LINE_TEXT",
+      "group": "所在"
+    },
+    {
+      "code": "tags",
+      "label": "タグ・ジャンル",
+      "type": "SINGLE_LINE_TEXT",
+      "group": "分類・状態"
+    },
+    {
+      "code": "lookupStatus",
+      "label": "書誌の確度",
+      "type": "DROP_DOWN",
+      "options": [
+        "未検索",
+        "確定",
+        "要確認",
+        "見つからず"
+      ],
+      "defaultValue": "未検索",
+      "group": "分類・状態"
+    },
+    {
+      "code": "addedOn",
+      "label": "登録日",
+      "type": "DATE",
+      "group": "分類・状態"
+    },
+    {
+      "code": "coverUrl",
+      "label": "書影URL",
+      "type": "LINK",
+      "protocol": "WEB"
+    },
+    {
+      "code": "cover",
+      "label": "書影",
+      "type": "FILE"
+    },
+    {
+      "code": "spineText",
+      "label": "背表紙OCR（原文）",
+      "type": "MULTI_LINE_TEXT"
+    },
+    {
+      "code": "memo",
+      "label": "メモ",
+      "type": "MULTI_LINE_TEXT"
+    }
+  ],
+  "views": [
+    {
+      "name": "すべての蔵書",
+      "type": "LIST",
+      "fields": [
+        "title",
+        "author",
+        "publisher",
+        "publishedYear",
+        "readStatus",
+        "ownership",
+        "location",
+        "tags"
+      ],
+      "sort": "更新日時 desc"
+    },
+    {
+      "name": "未読",
+      "type": "LIST",
+      "fields": [
+        "title",
+        "author",
+        "publisher",
+        "publishedYear",
+        "location",
+        "tags"
+      ],
+      "filterCond": "readStatus in (\"未読\")",
+      "sort": "更新日時 desc"
+    },
+    {
+      "name": "貸出中",
+      "type": "LIST",
+      "fields": [
+        "title",
+        "author",
+        "lentTo",
+        "location",
+        "ownership"
+      ],
+      "filterCond": "ownership in (\"貸出中\")",
+      "sort": "更新日時 desc"
+    },
+    {
+      "name": "要確認（書誌）",
+      "type": "LIST",
+      "fields": [
+        "title",
+        "author",
+        "isbn",
+        "lookupStatus",
+        "spineText"
+      ],
+      "filterCond": "lookupStatus in (\"要確認\", \"見つからず\")",
+      "sort": "更新日時 desc"
+    },
+    {
+      "name": "登録日カレンダー",
+      "type": "CALENDAR",
+      "date": "addedOn",
+      "fields": [
+        "title"
+      ]
+    }
+  ],
+  "settings": {
+    "titleFieldCode": "title"
+  }
+}

@@ -57,6 +57,14 @@ fieldsmith plan -f requirements.md -o bookshelf.json
 これは「テンプレートから量産する」用途に向く。
 既存アプリに変更を反映したい場合は `update` を使う。
 
+## サンプル
+
+そのまま `deploy` できる AppSpec の実例が [examples/](examples/) にある。
+
+```bash
+npx fieldsmith deploy examples/案件管理.json --dry-run
+```
+
 ## お試し手順
 
 全機能を一通り動かす手順書がある。副作用の小さい順（接続なし → kintone → Claude API）に
