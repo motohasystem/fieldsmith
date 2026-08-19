@@ -834,3 +834,10 @@ npm run e2e:manual    # 実 kintone 環境に検証用アプリを 1 つ作る
 LLM 層は `zod/v4`（`@anthropic-ai/sdk` の `zodOutputFormat` が要求）、
 コアは zod v3 を使う。両者の値は直接やり取りせず、`toAppSpecInput()` で
 ただのオブジェクトに落としてから受け渡す。
+
+## ライセンス
+
+MIT License（[LICENSE](LICENSE)）
+
+同梱している日本語フォント **DotGothic16** は SIL Open Font License 1.1 です。
+ライセンス全文は [assets/fonts/OFL.txt](assets/fonts/OFL.txt) に同梱しています。

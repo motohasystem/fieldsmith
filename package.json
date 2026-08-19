@@ -10,6 +10,8 @@
     "anthropic",
     "infrastructure-as-code"
   ],
+  "license": "MIT",
+  "author": "Daisuke Motohashi",
   "homepage": "https://github.com/motohasystem/fieldsmith#readme",
   "repository": {
     "type": "git",
