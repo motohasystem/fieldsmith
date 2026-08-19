@@ -573,6 +573,9 @@ fieldsmith revise 761 "受注確度を S/A/B/C の4段階にして、失注理�
 
 ## AI エージェントから使う
 
+Claude Code から使う場合の設定と注意点は **[docs/claude-code.md](docs/claude-code.md)** にまとめてある
+（`CLAUDE.md` と `.claude/settings.json` の雛形つき）。
+
 エージェントの仕事は **AppSpec を書くこと**で、デプロイはシェルコマンド 1 つ。
 そのために必要なものは揃えてある。
 
