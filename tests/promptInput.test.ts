@@ -13,7 +13,7 @@ describe("プロンプトの入力元", () => {
   });
 
   it("ファイルから読む", () => {
-    const dir = mkdtempSync(join(tmpdir(), "vck-prompt-"));
+    const dir = mkdtempSync(join(tmpdir(), "fieldsmith-prompt-"));
     const path = join(dir, "requirements.md");
     writeFileSync(path, "# 案件管理\n\n案件名、顧客名、金額を管理する。\n");
 

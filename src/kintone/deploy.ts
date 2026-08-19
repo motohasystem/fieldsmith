@@ -285,7 +285,7 @@ export async function deployAppSpec(
  * `@kintone/rest-api-client` の addApp() は、スペース指定時に
  * デフォルトスレッドを調べるため `GET /k/v1/space.json` を呼ぶが、
  * **この API は OAuth 認証に対応していない** (パスワード認証とセッション認証のみ) ため、
- * OAuth で動く vck からは使えない。
+ * OAuth で動く fieldsmith からは使えない。
  */
 async function createPreviewApp(
   name: string,
@@ -398,7 +398,7 @@ function describe(prefix: string, error: unknown): string {
     // 何が足りないのか分からないため、対処を添える。
     return (
       `${prefix}: OAuth のスコープが不足しています (CB_OA01)。\n` +
-      "  `vck login` を実行して認可をやり直してください。"
+      "  `fieldsmith login` を実行して認可をやり直してください。"
     );
   }
 
@@ -410,7 +410,7 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** 既存アプリから取得した設定。`vck pull` で使う。 */
+/** 既存アプリから取得した設定。`fieldsmith pull` で使う。 */
 export interface PulledApp {
   readonly spec: Record<string, unknown>;
   readonly warnings: readonly string[];

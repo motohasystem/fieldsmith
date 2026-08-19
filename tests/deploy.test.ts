@@ -23,8 +23,8 @@ const config: KintoneConfig = {
 };
 
 function withToken(): NodeJS.ProcessEnv {
-  const dir = mkdtempSync(join(tmpdir(), "vck-test-"));
-  const env: NodeJS.ProcessEnv = { VCK_CONFIG_DIR: dir };
+  const dir = mkdtempSync(join(tmpdir(), "fieldsmith-test-"));
+  const env: NodeJS.ProcessEnv = { FIELDSMITH_CONFIG_DIR: dir };
   saveToken(
     BASE_URL,
     {
@@ -71,7 +71,7 @@ describe("deployAppSpec", () => {
       "deployStatus",
       "deployStatus",
     ]);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("revision を各ステップに引き回す", async () => {
@@ -87,7 +87,7 @@ describe("deployAppSpec", () => {
     expect(mock.callsTo("settings")[0]!.body["revision"]).toBe("2");
     expect(mock.callsTo("views")[0]!.body["revision"]).toBe("3");
     expect(mock.callsTo("deploy")[0]!.body["apps"]).toEqual([{ app: "42", revision: "4" }]);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("icon があれば画像をアップロードして一般設定に紐付ける", async () => {
@@ -119,7 +119,7 @@ describe("deployAppSpec", () => {
       type: "FILE",
       file: { fileKey: "test-file-key" },
     });
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("icon だけの指定でも一般設定 API を呼ぶ", async () => {
@@ -138,7 +138,7 @@ describe("deployAppSpec", () => {
 
     // description も theme も無いが、アイコンのために settings を送る必要がある。
     expect(Object.keys(mock.callsTo("settings")[0]!.body)).toEqual(["app", "revision", "icon"]);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("icon が無ければ画像をアップロードしない", async () => {
@@ -150,7 +150,7 @@ describe("deployAppSpec", () => {
     server.close();
 
     expect(mock.callsTo("file")).toHaveLength(0);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("アイコンのアップロードに失敗したら、そのステップとして報告する", async () => {
@@ -172,7 +172,7 @@ describe("deployAppSpec", () => {
     expect(error!.step).toBe("uploadIcon");
     expect(error!.message).toMatch(/スコープが不足/);
     expect(mock.callsTo("deploy")).toHaveLength(0);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("スペース指定時は REST API を直接叩く (OAuth 非対応の空間 API を避ける)", async () => {
@@ -195,7 +195,7 @@ describe("deployAppSpec", () => {
       space: "12",
       thread: "34",
     });
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("スレッド未指定でも space だけ送る", async () => {
@@ -210,7 +210,7 @@ describe("deployAppSpec", () => {
     server.close();
 
     expect(mock.callsTo("app")[0]!.body).toEqual({ name: "案件管理", space: 12 });
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("スペース指定で失敗したら、スレッド ID の指定方法を案内する", async () => {
@@ -229,7 +229,7 @@ describe("deployAppSpec", () => {
     expect(error!.step).toBe("createApp");
     expect(error!.message).toMatch(/--thread/);
     expect(error!.message).toMatch(/space\/\{スペースID\}\/thread/);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("スペースを指定しなければ space を送らない (スペースに属さないアプリになる)", async () => {
@@ -241,7 +241,7 @@ describe("deployAppSpec", () => {
     server.close();
 
     expect(mock.callsTo("app")[0]!.body).toEqual({ name: "案件管理" });
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("ゲストスペースでは URL の前置きが変わる", async () => {
@@ -260,7 +260,7 @@ describe("deployAppSpec", () => {
 
     expect(mock.callsTo("app")).toHaveLength(1);
     expect(mock.callsTo("deployStatus")).toHaveLength(1);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("既定でフォームの並びを整える", async () => {
@@ -308,7 +308,7 @@ describe("deployAppSpec", () => {
       },
       { type: "ROW", fields: [{ type: "DROP_DOWN", code: "確度" }] },
     ]);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("layout: stacked ならレイアウトに触らない", async () => {
@@ -321,7 +321,7 @@ describe("deployAppSpec", () => {
 
     expect(mock.callsTo("getLayout")).toHaveLength(0);
     expect(mock.callsTo("updateLayout")).toHaveLength(0);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("maxPerRow を指定できる", async () => {
@@ -349,7 +349,7 @@ describe("deployAppSpec", () => {
 
     const sent = mock.callsTo("updateLayout")[0]!.body["layout"] as { fields: unknown[] }[];
     expect(sent.map((row) => row.fields.length)).toEqual([2, 1]);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("設定・一覧の指定が無ければその API を呼ばない", async () => {
@@ -367,7 +367,7 @@ describe("deployAppSpec", () => {
 
     expect(mock.callsTo("settings")).toHaveLength(0);
     expect(mock.callsTo("views")).toHaveLength(0);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("100 件を超えるフィールドを分割して送る", async () => {
@@ -393,7 +393,7 @@ describe("deployAppSpec", () => {
     expect(Object.keys(fieldCalls[2]!.body["properties"] as object)).toHaveLength(50);
     // 分割しても revision は連続して引き回される。
     expect(fieldCalls[1]!.body["revision"]).toBe("2");
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("PROCESSING が続く間はポーリングし、SUCCESS で完了する", async () => {
@@ -407,7 +407,7 @@ describe("deployAppSpec", () => {
     server.close();
 
     expect(mock.callsTo("deployStatus")).toHaveLength(4);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it.each([
@@ -428,7 +428,7 @@ describe("deployAppSpec", () => {
     expect(error!.step).toBe("polling");
     expect(error!.message).toMatch(pattern);
     expect(error!.message).toMatch(/42/);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("タイムアウトすると打ち切って appId を伝える", async () => {
@@ -454,7 +454,7 @@ describe("deployAppSpec", () => {
 
     expect(error!.message).toMatch(/完了しませんでした/);
     expect(error!.appId).toBe("42");
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("途中で失敗しても既定では破棄せず、アプリ ID を残す", async () => {
@@ -470,7 +470,7 @@ describe("deployAppSpec", () => {
     expect(error!.step).toBe("addFields");
     expect(error!.message).toMatch(/アプリ ID 42 が残っています/);
     expect(mock.callsTo("deploy")).toHaveLength(0);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("--revert-on-failure なら破棄を呼ぶ", async () => {
@@ -489,7 +489,7 @@ describe("deployAppSpec", () => {
     expect(mock.callsTo("deploy")).toHaveLength(1);
     expect(mock.callsTo("deploy")[0]!.body).toEqual({ apps: [{ app: "42" }], revert: true });
     expect(error!.message).toMatch(/破棄しました/);
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("スコープ不足 (CB_OA01) は対処つきで伝える", async () => {
@@ -506,9 +506,9 @@ describe("deployAppSpec", () => {
     server.close();
 
     expect(error!.message).toMatch(/スコープが不足/);
-    expect(error!.message).toMatch(/vck login/);
+    expect(error!.message).toMatch(/fieldsmith login/);
     expect(error!.appId).toBe("42");
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("アプリ作成そのものに失敗したら appId は null", async () => {
@@ -523,7 +523,7 @@ describe("deployAppSpec", () => {
 
     expect(error!.appId).toBeNull();
     expect(error!.step).toBe("createApp");
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("各ステップの開始と完了を通知し、完了側に detail を添える", async () => {
@@ -563,7 +563,7 @@ describe("deployAppSpec", () => {
     expect(polls.map((e) => e.message)).toEqual(["反映状況: PROCESSING", "反映状況: SUCCESS"]);
     expect(polls[0]!.detail).toMatch(/1 回目の確認/);
 
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 });
 

@@ -21,8 +21,8 @@ export function appSpecReference(): string {
 
   lines.push("# AppSpec の書き方");
   lines.push("");
-  lines.push("kintone アプリ 1 つを表す JSON。`vck deploy <file>` に渡す。");
-  lines.push("完全な JSON Schema は `vck schema --json` で出力できる。");
+  lines.push("kintone アプリ 1 つを表す JSON。`fieldsmith deploy <file>` に渡す。");
+  lines.push("完全な JSON Schema は `fieldsmith schema --json` で出力できる。");
   lines.push("");
 
   lines.push("## トップレベル");
@@ -105,13 +105,13 @@ export function appSpecReference(): string {
   lines.push("## 検証");
   lines.push("");
   lines.push("```bash");
-  lines.push("vck deploy <file> --dry-run --json   # kintone にも Claude にも接続せずに検証できる");
+  lines.push("fieldsmith deploy <file> --dry-run --json   # kintone にも Claude にも接続せずに検証できる");
   lines.push("```");
 
   return lines.join("\n");
 }
 
-/** そのまま `vck deploy` に渡せる実例。 */
+/** そのまま `fieldsmith deploy` に渡せる実例。 */
 export function appSpecExample(): unknown {
   return {
     name: "案件管理",

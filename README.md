@@ -1,12 +1,12 @@
-# vck (vibe-crafting-kintone)
+# fieldsmith
 
 **AppSpec（JSON）1 つで、kintone アプリを何度でも、いくつでも作れる CLI。**
 
 ```bash
-vck deploy bookshelf.json                    # 作る
-vck deploy bookshelf.json --space 12         # 同じものを、別のスペースにもう 1 つ
+fieldsmith deploy bookshelf.json                    # 作る
+fieldsmith deploy bookshelf.json --space 12         # 同じものを、別のスペースにもう 1 つ
 KINTONE_BASE_URL=https://other.cybozu.com \
-  vck deploy bookshelf.json                  # 同じものを、別のドメインにも
+  fieldsmith deploy bookshelf.json                  # 同じものを、別のドメインにも
 ```
 
 アプリの形をファイルとして持てるので、レビューでき、差分が見え、
@@ -15,7 +15,7 @@ KINTONE_BASE_URL=https://other.cybozu.com \
 **その AppSpec は、要件を書いた文章からも作れる。**
 
 ```bash
-vck plan -f requirements.md -o bookshelf.json
+fieldsmith plan -f requirements.md -o bookshelf.json
 ```
 
 こちらは付加価値であって、中心ではない。生成された AppSpec は普通の JSON なので、
@@ -47,7 +47,7 @@ vck plan -f requirements.md -o bookshelf.json
 - 同じ AppSpec を 2 回デプロイすると、同じ API 呼び出しの列になること
 
 なお、アプリ ID・リビジョン・`fileKey` は kintone が採番するので当然変わる。
-決定的なのは「vck が何を送るか」であって、サーバーが返す値ではない。
+決定的なのは「fieldsmith が何を送るか」であって、サーバーが返す値ではない。
 
 ### 毎回「新しいアプリ」を作る
 
@@ -69,26 +69,26 @@ vck plan -f requirements.md -o bookshelf.json
 
 ```bash
 # 1. kintone に認可する（初回のみ）
-npm run vck -- login
+npm run fieldsmith -- login
 
 # 2. 送信予定の内容を確認する（kintone には触らない）
-npm run vck -- deploy bookshelf.json --dry-run
+npm run fieldsmith -- deploy bookshelf.json --dry-run
 
 # 3. デプロイする
-npm run vck -- deploy bookshelf.json
+npm run fieldsmith -- deploy bookshelf.json
 
 # 反映状況を確認する
-npm run vck -- status 752
+npm run fieldsmith -- status 752
 ```
 
 AppSpec を文章から作る場合:
 
 ```bash
 # 設計だけ作る（kintone には接続しない）
-npm run vck -- plan -f requirements.md -o bookshelf.json
+npm run fieldsmith -- plan -f requirements.md -o bookshelf.json
 
 # 生成からデプロイまで一気に（デプロイ前に確認が入る）
-npm run vck -- create -f requirements.md
+npm run fieldsmith -- create -f requirements.md
 ```
 
 | コマンド | 説明 |
@@ -126,7 +126,7 @@ cp .env.example .env   # 値を埋める
 | | パスワード認証 | OAuth |
 |---|---|---|
 | 事前の登録 | **不要** | OAuth クライアントの登録が要る |
-| `vck login` | **不要** | 必要（ブラウザで認可）|
+| `fieldsmith login` | **不要** | 必要（ブラウザで認可）|
 | 設定に置くもの | ログイン名とパスワード | クライアント ID / シークレット |
 | パスワードの保存 | **`.env` に置く** | 置かない（トークンのみ）|
 | CI などの非対話環境 | そのまま動く | 事前に認可してトークンを配る必要がある |
@@ -160,7 +160,7 @@ KINTONE_OAUTH_TOKEN_ENDPOINT=...
 
 1. cybozu.com 共通管理 → 外部サービス連携 → **OAuth クライアント** でクライアントを登録する。
    リダイレクトエンドポイントには、認可後に転送される URL を指定する
-   （vck は転送先の URL を手で貼り付ける方式なので、実際にページが存在しなくても構わない）。
+   （fieldsmith は転送先の URL を手で貼り付ける方式なので、実際にページが存在しなくても構わない）。
 2. 登録すると **クライアント ID / シークレット / 認可エンドポイント URL / トークンエンドポイント URL**
    が払い出されるので、そのまま `.env` に書く。
 3. 実行するユーザーに **「アプリの作成」権限** が必要。
@@ -176,20 +176,20 @@ OAuth を使う場合、必要なスコープは次の 3 つ。レコードに�
 `read` を忘れると、書き込みがすべて成功したあと最後の状況確認だけが
 `403 CB_OA01 Cannot access protected resource` で落ちる。
 アプリは動作テスト環境に作られたまま残るという分かりにくい壊れ方をするので、
-vck は保存済みトークンのスコープを起動時に検査し、足りなければ 1 リクエストも投げずに停止する。
+fieldsmith は保存済みトークンのスコープを起動時に検査し、足りなければ 1 リクエストも投げずに停止する。
 
 > アプリの新規作成 API（`POST /k/v1/preview/app.json`）は **API トークンでは実行できない**。
-> そのため vck は OAuth 認証を使う。
+> そのため fieldsmith は OAuth 認証を使う。
 
 ### 認可
 
 ```bash
-npm run vck -- login
+npm run fieldsmith -- login
 ```
 
 表示された URL をブラウザで開いて許可し、転送先のアドレスバーの URL をそのまま貼り付ける。
 アクセストークンは 1 時間で失効するが、リフレッシュトークン（無期限）を
-`~/.config/vck/tokens.json`（パーミッション 0600）に保存するので、以降の再ログインは基本的に不要。
+`~/.config/fieldsmith/tokens.json`（パーミッション 0600）に保存するので、以降の再ログインは基本的に不要。
 
 ## AppSpec — アプリの設計図
 
@@ -212,7 +212,7 @@ npm run vck -- login
 }
 ```
 
-- **選択肢は文字列の配列**で書く。kintone が要求する `{ ラベル: { label, index } }` への変換は vck が行う。
+- **選択肢は文字列の配列**で書く。kintone が要求する `{ ラベル: { label, index } }` への変換は fieldsmith が行う。
 - `icon` に絵文字か頭文字を書くと、**アイコン画像を生成してアップロードし**、アプリアイコンに設定する。
 - `code`（フィールドコード）は省略可。省略すると `label` から導出する。
 - `STATUS` / `ASSIGNEE` / `CATEGORY` などフィールド追加 API で追加できない型は、
@@ -224,7 +224,7 @@ npm run vck -- login
 アプリを特定のスペースに作れる。CLI の `--space` が AppSpec の `space` より優先される。
 
 ```bash
-npm run vck -- deploy spec.json --space 12
+npm run fieldsmith -- deploy spec.json --space 12
 ```
 
 ```jsonc
@@ -242,7 +242,7 @@ npm run vck -- deploy spec.json --space 12
 
 `@kintone/rest-api-client` の `addApp()` は、スペース指定時にデフォルトスレッドを
 調べるため `GET /k/v1/space.json` を呼ぶ。ところが **この API は OAuth 認証に対応していない**
-（パスワード認証とセッション認証のみ）ため、OAuth で動く vck からは使えない。
+（パスワード認証とセッション認証のみ）ため、OAuth で動く fieldsmith からは使えない。
 
 そこでスペース指定時だけ `POST /k/v1/preview/app.json` を直接叩き、`space` を渡している
 （`src/kintone/deploy.ts` の `createPreviewApp`）。トークンの更新は通常経路と同じ仕組みに乗る。
@@ -363,7 +363,7 @@ memo
 手で作った既存アプリも AppSpec として取り出せる。**読み取りしかしないので、いつ実行しても安全。**
 
 ```bash
-vck pull 752 -o spec.json
+fieldsmith pull 752 -o spec.json
 ```
 
 取り出した AppSpec はそのまま `deploy` に渡せるので、既存アプリを雛形にして
@@ -400,7 +400,7 @@ AppSpec は kintone の設定をすべて表現できるわけではない。落
 手元の AppSpec と既存アプリの違いを表示する。**読み取りのみ。**
 
 ```bash
-vck diff 761 target.json
+fieldsmith diff 761 target.json
 ```
 
 ```
@@ -446,17 +446,17 @@ kintone は作成後のフィールド型を変えられない。`!` が出た�
 
 ### 削除候補という考え方
 
-目標の AppSpec から消えたフィールドを、vck は**削除しない**。
+目標の AppSpec から消えたフィールドを、fieldsmith は**削除しない**。
 畳んだグループに移すだけで、データは残る。実際に消すかどうかは人が kintone の画面で決める。
 
 ## 既存アプリを更新する
 
 ```bash
-vck pull 761 -o spec.json     # 1. 現状を取り出す
+fieldsmith pull 761 -o spec.json     # 1. 現状を取り出す
 # 2. spec.json を編集する（手でも、LLM でも）
-vck diff 761 spec.json        # 3. 何が起きるか確かめる
-vck update 761 spec.json      # 4. 動作テスト環境まで適用する
-vck update 761 spec.json --deploy   # 5. 問題なければ運用環境へ反映する
+fieldsmith diff 761 spec.json        # 3. 何が起きるか確かめる
+fieldsmith update 761 spec.json      # 4. 動作テスト環境まで適用する
+fieldsmith update 761 spec.json --deploy   # 5. 問題なければ運用環境へ反映する
 ```
 
 ### 既定では運用環境へ反映しない
@@ -472,7 +472,7 @@ kintone の画面で「変更を確認」してから、人が反映を決めら
 
 ### フィールドは消さない
 
-目標の AppSpec から消えたフィールドを、vck は**削除しない**。
+目標の AppSpec から消えたフィールドを、fieldsmith は**削除しない**。
 `削除候補` という畳んだグループ（`_削除候補`）を作ってそこへ移すだけで、**データは残る**。
 実際に消すかどうかは人が kintone の画面で決める。
 
@@ -494,7 +494,7 @@ kintone は作成後のフィールド型を変更できないため、この Ap
 
 ### 書かれていない項目は「現状維持」
 
-kintone の設定変更 API は、**省略した項目を変更しない**。vck もそれに合わせている。
+kintone の設定変更 API は、**省略した項目を変更しない**。fieldsmith もそれに合わせている。
 
 ```jsonc
 // 現状: required: true のフィールド
@@ -528,7 +528,7 @@ kintone の設定変更 API は、**省略した項目を変更しない**。vck
 「こう変えて」と書けば、既存アプリの設計を書き換えた AppSpec が出る。**kintone は読むだけ。**
 
 ```bash
-vck revise 761 "受注確度を S/A/B/C の4段階にして、失注理由を足して" -o revised.json
+fieldsmith revise 761 "受注確度を S/A/B/C の4段階にして、失注理由を足して" -o revised.json
 ```
 
 ```
@@ -539,7 +539,7 @@ vck revise 761 "受注確度を S/A/B/C の4段階にして、失注理由を足
   + 失注理由 (MULTI_LINE_TEXT) を追加
   ~ 受注確度: options: ["高","中","低"] → ["S","A","B","C"]
 
-確認したら: vck update 761 revised.json
+確認したら: fieldsmith update 761 revised.json
 ```
 
 **何が起きるかは、生成結果の自己申告ではなく決定的な差分で示す。**
@@ -571,9 +571,9 @@ vck revise 761 "受注確度を S/A/B/C の4段階にして、失注理由を足
 ### 1. 書き方を教える
 
 ```bash
-vck schema             # 簡潔な一覧（これを読ませる）
-vck schema --json      # 完全な JSON Schema
-vck schema --example   # そのまま deploy できる実例
+fieldsmith schema             # 簡潔な一覧（これを読ませる）
+fieldsmith schema --json      # 完全な JSON Schema
+fieldsmith schema --example   # そのまま deploy できる実例
 ```
 
 いずれも Zod の定義から導出しているので、実装とずれない。
@@ -581,7 +581,7 @@ vck schema --example   # そのまま deploy できる実例
 ### 2. 認証なしで検証させる
 
 ```bash
-vck deploy spec.json --dry-run --json
+fieldsmith deploy spec.json --dry-run --json
 ```
 
 `--dry-run` は **kintone にも Claude にも接続しない**。
@@ -628,7 +628,7 @@ vck deploy spec.json --dry-run --json
 | 0 | — | 成功 |
 | 1 | `unknown` | 想定外。メッセージを確認する |
 | 2 | `validation` | AppSpec を直して再実行する |
-| 3 | `auth` | `vck login` で認可をやり直す |
+| 3 | `auth` | `fieldsmith login` で認可をやり直す |
 | 4 | `config` | `.env` の設定を見直す |
 | 5 | `kintone` | 権限を確認するか、時間をおいて再試行する |
 | 6 | `generation` | 要件の書き方を変えて再実行する |
@@ -637,10 +637,10 @@ vck deploy spec.json --dry-run --json
 ### 使い方の型
 
 ```bash
-vck schema > /tmp/appspec-reference.md   # 1. 書き方を読む
+fieldsmith schema > /tmp/appspec-reference.md   # 1. 書き方を読む
 # 2. エージェントが spec.json を書く
-vck deploy spec.json --dry-run --json    # 3. 検証（認証不要）。exit 2 なら issues を読んで直す
-vck deploy spec.json --json              # 4. デプロイ
+fieldsmith deploy spec.json --dry-run --json    # 3. 検証（認証不要）。exit 2 なら issues を読んで直す
+fieldsmith deploy spec.json --json              # 4. デプロイ
 ```
 
 `login` だけは人間が一度やる必要がある（ブラウザで認可して URL を貼る）。
@@ -687,14 +687,14 @@ Claude API の認証情報が見つかりません。次のいずれかを設定
 `--prompt-file`（`-f`）でファイルから読める。Markdown でも構わない。
 
 ```bash
-npm run vck -- plan -f requirements.md -o spec.json
-npm run vck -- create -f requirements.md
+npm run fieldsmith -- plan -f requirements.md -o spec.json
+npm run fieldsmith -- create -f requirements.md
 ```
 
 `-` を渡すと標準入力から読む。
 
 ```bash
-cat requirements.md | npm run vck -- plan -f - -o spec.json
+cat requirements.md | npm run fieldsmith -- plan -f - -o spec.json
 ```
 
 引数と `--prompt-file` の同時指定はエラーにする。どちらが使われるか曖昧なまま
@@ -725,7 +725,7 @@ cat requirements.md | npm run vck -- plan -f - -o spec.json
 - 反映状況の確認が何回目か、何秒経過したか
 
 ```bash
-npm run vck -- --verbose create "問い合わせ管理アプリ"
+npm run fieldsmith -- --verbose create "問い合わせ管理アプリ"
 ```
 
 ```

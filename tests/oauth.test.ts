@@ -33,11 +33,11 @@ const config: KintoneConfig = { baseUrl: "https://example.cybozu.com", auth: oau
 let env: NodeJS.ProcessEnv;
 
 beforeEach(() => {
-  env = { VCK_CONFIG_DIR: mkdtempSync(join(tmpdir(), "vck-oauth-")) };
+  env = { FIELDSMITH_CONFIG_DIR: mkdtempSync(join(tmpdir(), "fieldsmith-oauth-")) };
 });
 
 afterEach(() => {
-  rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+  rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
 });
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -196,7 +196,7 @@ describe("トークン更新", () => {
       (e: unknown) => e,
     );
     expect(error).toBeInstanceOf(ReauthRequiredError);
-    expect((error as Error).message).toMatch(/vck login/);
+    expect((error as Error).message).toMatch(/fieldsmith login/);
   });
 });
 
@@ -263,7 +263,7 @@ describe("認証済みクライアント", () => {
 
     // ここで止めないと「アプリだけ作られて途中で 403」という最悪の形になる。
     expect(() => createAuthenticatedKintone({ config, env })).toThrow(/k:app_settings:read/);
-    expect(() => createAuthenticatedKintone({ config, env })).toThrow(/vck login/);
+    expect(() => createAuthenticatedKintone({ config, env })).toThrow(/fieldsmith login/);
   });
 
   it("scope が記録されていないトークンは通す (判定材料が無いため)", () => {

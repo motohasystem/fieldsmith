@@ -125,7 +125,7 @@ function createWithOAuth(options: CreateClientOptions): AuthenticatedKintone {
   const stored = loadToken(config.baseUrl, env);
   if (stored === null) {
     throw new ReauthRequiredError(
-      `${config.baseUrl} の認証情報が見つかりません。\`vck login\` を実行してください。`,
+      `${config.baseUrl} の認証情報が見つかりません。\`fieldsmith login\` を実行してください。`,
     );
   }
 
@@ -135,7 +135,7 @@ function createWithOAuth(options: CreateClientOptions): AuthenticatedKintone {
   if (missing.length > 0) {
     throw new ReauthRequiredError(
       `保存済みの認証情報にスコープ ${missing.join(", ")} が含まれていません。\n` +
-        "`vck login` を実行して認可をやり直してください。",
+        "`fieldsmith login` を実行して認可をやり直してください。",
     );
   }
 
@@ -200,7 +200,7 @@ function createWithOAuth(options: CreateClientOptions): AuthenticatedKintone {
   };
 }
 
-const USER_AGENT = "vck (vibe-crafting-kintone)";
+const USER_AGENT = "fieldsmith";
 
 /** 認証ヘッダーだけを差し替えて REST API を直接叩く。 */
 async function rawRequest<T>(

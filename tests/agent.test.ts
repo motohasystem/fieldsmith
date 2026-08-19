@@ -119,7 +119,7 @@ describe("失敗の分類", () => {
   });
 });
 
-describe("vck schema", () => {
+describe("fieldsmith schema", () => {
   it("実例はそのままデプロイできる", () => {
     // ここが壊れると、エージェントは動かない spec を掴まされる。
     const spec = parseAppSpec(appSpecExample());

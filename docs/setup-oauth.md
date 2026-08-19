@@ -18,16 +18,16 @@ OAuth クライアントを登録して認可する。**パスワードを設定
 ## 1. インストール
 
 ```bash
-git clone https://github.com/motohasystem/vibecraft-kintone.git
-cd vibecraft-kintone
+git clone https://github.com/motohasystem/fieldsmith.git
+cd fieldsmith
 npm install
 npm run build
 ```
 
-以降 `vck` と書くところは `npm run vck --` に読み替える。
+以降 `fieldsmith` と書くところは `npm run fieldsmith --` に読み替える。
 
 ```bash
-npm run vck -- schema      # = vck schema
+npm run fieldsmith -- schema      # = fieldsmith schema
 ```
 
 ## 2. OAuth クライアントを登録する
@@ -36,10 +36,10 @@ cybozu.com 共通管理 → 外部サービス連携 → **OAuth クライアン
 
 | 項目 | 値 |
 |---|---|
-| クライアント名 | `vck` など |
+| クライアント名 | `fieldsmith` など |
 | リダイレクトエンドポイント | 転送先の URL。例: `https://example.com/callback` |
 
-> リダイレクト先のページは**実在しなくてよい**。vck は転送先の URL を手で貼り付ける方式なので、
+> リダイレクト先のページは**実在しなくてよい**。fieldsmith は転送先の URL を手で貼り付ける方式なので、
 > ブラウザがそこへ飛んだときにアドレスバーの URL さえ読めればよい。
 
 保存すると次の 4 つが払い出される。
@@ -71,7 +71,7 @@ KINTONE_OAUTH_TOKEN_ENDPOINT=...
 ## 4. 認可する
 
 ```bash
-vck login
+fieldsmith login
 ```
 
 1. 表示された URL をブラウザで開く
@@ -89,7 +89,7 @@ vck login
 
 > `k:app_settings:read` を忘れると、書き込みが全部成功したあと
 > 最後の反映状況の確認だけが `403 CB_OA01` で落ちる。
-> vck は保存済みトークンのスコープを起動時に検査するので、
+> fieldsmith は保存済みトークンのスコープを起動時に検査するので、
 > 足りなければ 1 リクエストも投げずに止まる。
 
 成功するとこう出る。
@@ -99,13 +99,13 @@ vck login
   アクセストークンは 1 時間で失効しますが、以降は自動で更新されます。
 ```
 
-トークンは `~/.config/vck/tokens.json`（パーミッション 0600）に保存される。
+トークンは `~/.config/fieldsmith/tokens.json`（パーミッション 0600）に保存される。
 リフレッシュトークンには有効期限が無いので、**再ログインは基本的に不要**。
 
 ## 5. 繋がることを確かめる
 
 ```bash
-vck --verbose status 1
+fieldsmith --verbose status 1
 ```
 
 ```
@@ -118,11 +118,11 @@ vck --verbose status 1
 
 | 表示 | 原因 |
 |---|---|
-| `state が一致しません` | 貼り付けた URL が別の認可のもの。`vck login` からやり直す |
+| `state が一致しません` | 貼り付けた URL が別の認可のもの。`fieldsmith login` からやり直す |
 | `URL に認可コード (code) が含まれていません` | リダイレクト先の URL ではなく認可 URL を貼っている |
 | `HTTP 400 … invalid_grant` | 認可コードの有効期限は 10 分。時間をおきすぎた場合はやり直す |
-| `保存済みの認証情報にスコープ … が含まれていません` | 古いトークン。`vck login` をやり直す |
-| `403 CB_OA01` | スコープ不足。`vck login` をやり直す |
+| `保存済みの認証情報にスコープ … が含まれていません` | 古いトークン。`fieldsmith login` をやり直す |
+| `403 CB_OA01` | スコープ不足。`fieldsmith login` をやり直す |
 
 ---
 
@@ -132,6 +132,6 @@ vck --verbose status 1
 
 ### 覚えておくこと
 
-- トークンを破棄するときは `vck logout`
-- CI やエージェントから使う場合、`vck login` はブラウザが要るので人が一度やる必要がある。
+- トークンを破棄するときは `fieldsmith logout`
+- CI やエージェントから使う場合、`fieldsmith login` はブラウザが要るので人が一度やる必要がある。
   完全に非対話にしたいなら [パスワード認証](setup-password.md) を選ぶ

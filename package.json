@@ -1,5 +1,5 @@
 {
-  "name": "vibecraft-kintone",
+  "name": "fieldsmith",
   "version": "0.1.0",
   "description": "AppSpec (JSON) から kintone アプリを何度でも作る CLI。AppSpec は要件の文章からも作れる",
   "keywords": [
@@ -10,18 +10,17 @@
     "anthropic",
     "infrastructure-as-code"
   ],
-  "homepage": "https://github.com/motohasystem/vibecraft-kintone#readme",
+  "homepage": "https://github.com/motohasystem/fieldsmith#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/motohasystem/vibecraft-kintone.git"
+    "url": "git+https://github.com/motohasystem/fieldsmith.git"
   },
   "bugs": {
-    "url": "https://github.com/motohasystem/vibecraft-kintone/issues"
+    "url": "https://github.com/motohasystem/fieldsmith/issues"
   },
   "type": "module",
   "bin": {
-    "vck": "./dist/cli/index.js",
-    "vibecraft-kintone": "./dist/cli/index.js"
+    "fieldsmith": "./dist/cli/index.js"
   },
   "files": [
     "dist",
@@ -35,7 +34,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "vck": "tsx src/cli/index.ts",
+    "fieldsmith": "tsx src/cli/index.ts",
     "e2e:manual": "tsx scripts/e2e-manual.ts",
     "prepublishOnly": "npm run build",
     "prepare": "npm run build"

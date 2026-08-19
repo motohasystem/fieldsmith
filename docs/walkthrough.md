@@ -1,4 +1,4 @@
-# vck お試し手順書
+# fieldsmith お試し手順書
 
 全機能を一通り動かすための手順。所要 30〜45 分。
 
@@ -25,11 +25,11 @@
 | | かかる手間 | 向いている場面 |
 |---|---|---|
 | **[パスワード認証](setup-password.md)** | `.env` に 3 行 | 手早く試す / CI・エージェントから使う |
-| **[OAuth](setup-oauth.md)** | クライアント登録 + `vck login` | パスワードを設定に置きたくない |
+| **[OAuth](setup-oauth.md)** | クライアント登録 + `fieldsmith login` | パスワードを設定に置きたくない |
 
 どちらでもこの手順書の内容は同じように動く。違うのはセットアップだけ。
 
-済んだら、`vck --verbose status 1` で接続先と認証方式が想定どおりか確かめておく。
+済んだら、`fieldsmith --verbose status 1` で接続先と認証方式が想定どおりか確かめておく。
 
 ```
   接続先: https://<サブドメイン>.cybozu.com (パスワード認証: taro)
@@ -46,20 +46,20 @@
 ### 1-1. AppSpec の書き方を見る
 
 ```bash
-vck schema
+fieldsmith schema
 ```
 
 対応フィールド型、型ごとに指定できるキー、指定できない型が出る。
 すべて実装の定義から導出しているので、実装とずれない。
 
 ```bash
-vck schema --json      # 完全な JSON Schema
+fieldsmith schema --json      # 完全な JSON Schema
 ```
 
 ### 1-2. 実例を取り出す
 
 ```bash
-vck schema --example > try.json
+fieldsmith schema --example > try.json
 ```
 
 案件管理アプリの AppSpec が出る。アイコン、レイアウトの `group`、選択肢、
@@ -68,7 +68,7 @@ vck schema --example > try.json
 ### 1-3. 検証する
 
 ```bash
-vck deploy try.json --dry-run
+fieldsmith deploy try.json --dry-run
 ```
 
 kintone に送る内容がそのまま表示される。確認するところ:
@@ -89,7 +89,7 @@ cat > bad.json <<'EOF'
 }
 EOF
 
-vck deploy bad.json --dry-run
+fieldsmith deploy bad.json --dry-run
 echo "終了コード: $?"
 ```
 
@@ -104,7 +104,7 @@ AppSpec の検証に失敗しました
 
 ```bash
 echo '{"name":"だめな例2","fields":[{"type":"DROP_DOWN","label":"確度"},{"type":"SINGLE_LINE_TEXT"}]}' > bad2.json
-vck deploy bad2.json --dry-run
+fieldsmith deploy bad2.json --dry-run
 ```
 
 ```
@@ -119,7 +119,7 @@ AppSpec の検証に失敗しました
 ### 1-5. 機械可読な出力を見る
 
 ```bash
-vck deploy bad.json --dry-run --json | head -20
+fieldsmith deploy bad.json --dry-run --json | head -20
 ```
 
 `--json` を付けると **stdout は JSON だけ**になり、進捗や人間向けの表示は stderr に回る。
@@ -134,7 +134,7 @@ vck deploy bad.json --dry-run --json | head -20
 ### 2-1. デプロイする
 
 ```bash
-vck deploy try.json
+fieldsmith deploy try.json
 ```
 
 ```
@@ -172,7 +172,7 @@ URL を開いて、次を見る。
 ### 2-3. 反映状況を確認する
 
 ```bash
-vck status <APP_ID>
+fieldsmith status <APP_ID>
 ```
 
 ```
@@ -182,10 +182,10 @@ vck status <APP_ID>
 ### 2-4. 同じ spec からもう 1 つ作る（任意）
 
 ```bash
-vck deploy try.json
+fieldsmith deploy try.json
 ```
 
-**まったく同じアプリがもう 1 つできる。** これが vck の中心にある性質で、
+**まったく同じアプリがもう 1 つできる。** これが fieldsmith の中心にある性質で、
 検証環境と本番に同じものを作ったり、テンプレートから量産したりできる。
 
 > 増やした分だけ後で消す手間が増えるので、1 つで十分なら飛ばしてよい。
@@ -199,7 +199,7 @@ vck deploy try.json
 ### 3-1. 現状を取り出す
 
 ```bash
-vck pull <APP_ID> -o current.json
+fieldsmith pull <APP_ID> -o current.json
 ```
 
 **読み取りしかしない。** いつ実行しても安全。
@@ -234,7 +234,7 @@ vck pull <APP_ID> -o current.json
 ### 3-3. 差分を見る
 
 ```bash
-vck diff <APP_ID> current.json
+fieldsmith diff <APP_ID> current.json
 ```
 
 ```
@@ -258,7 +258,7 @@ vck diff <APP_ID> current.json
 ### 3-4. 適用する（運用環境にはまだ出さない）
 
 ```bash
-vck update <APP_ID> current.json
+fieldsmith update <APP_ID> current.json
 ```
 
 ```
@@ -280,7 +280,7 @@ vck update <APP_ID> current.json
 ### 3-6. もう一度流してみる（冪等性）
 
 ```bash
-vck update <APP_ID> current.json
+fieldsmith update <APP_ID> current.json
 ```
 
 ```
@@ -294,7 +294,7 @@ vck update <APP_ID> current.json
 ### 3-7. 運用環境へ反映する
 
 ```bash
-vck update <APP_ID> current.json --deploy
+fieldsmith update <APP_ID> current.json --deploy
 ```
 
 反映されない場合は、3-4 の段階で kintone の画面から「変更を中止」してしまっていないか確認する。
@@ -304,7 +304,7 @@ vck update <APP_ID> current.json --deploy
 `current.json` で「備考」の `type` を `SINGLE_LINE_TEXT` に変えて実行する。
 
 ```bash
-vck update <APP_ID> current.json
+fieldsmith update <APP_ID> current.json
 ```
 
 ```
@@ -358,7 +358,7 @@ EOF
 ### 4-3. AppSpec を作る
 
 ```bash
-vck plan -f requirements.md -o inquiry.json
+fieldsmith plan -f requirements.md -o inquiry.json
 ```
 
 生成中は経過が動く。`--verbose` を付けると思考の要約も流れる。
@@ -385,8 +385,8 @@ vck plan -f requirements.md -o inquiry.json
 ### 4-4. デプロイする
 
 ```bash
-vck deploy inquiry.json --dry-run   # まず確認
-vck deploy inquiry.json
+fieldsmith deploy inquiry.json --dry-run   # まず確認
+fieldsmith deploy inquiry.json
 ```
 
 ### 4-5. 指示だけで更新案を作る
@@ -394,7 +394,7 @@ vck deploy inquiry.json
 第 4-4 で作ったアプリの ID を使う。
 
 ```bash
-vck revise <APP_ID> "対応状況に「保留」を足して、優先度（高/中/低）のフィールドを追加して" -o revised.json
+fieldsmith revise <APP_ID> "対応状況に「保留」を足して、優先度（高/中/低）のフィールドを追加して" -o revised.json
 ```
 
 ```
@@ -403,21 +403,21 @@ vck revise <APP_ID> "対応状況に「保留」を足して、優先度（高/�
   + 優先度 (DROP_DOWN) を追加
   ~ 対応状況: options: ["未対応","対応中","完了"] → ["未対応","対応中","保留","完了"]
 
-確認したら: vck update <APP_ID> revised.json
+確認したら: fieldsmith update <APP_ID> revised.json
 ```
 
 **何が起きるかは、モデルの自己申告ではなく決定的な差分で示される。**
 `revise` も kintone は読むだけで、適用はしない。
 
 ```bash
-vck update <APP_ID> revised.json
-vck update <APP_ID> revised.json --deploy
+fieldsmith update <APP_ID> revised.json
+fieldsmith update <APP_ID> revised.json --deploy
 ```
 
 ### 4-6. 一気にやる（任意）
 
 ```bash
-vck create -f requirements.md
+fieldsmith create -f requirements.md
 ```
 
 生成 → 内容を表示 → **確認を求める** → デプロイ、まで一度に進む。
@@ -440,7 +440,7 @@ vck create -f requirements.md
 ### 認証情報を片付ける（任意）
 
 - パスワード認証: `.env` の `KINTONE_USERNAME` / `KINTONE_PASSWORD` を消す
-- OAuth: `vck logout`（`~/.config/vck/tokens.json` から該当ドメインの分が消える）
+- OAuth: `fieldsmith logout`（`~/.config/fieldsmith/tokens.json` から該当ドメインの分が消える）
 
 ### 作業ファイル
 
@@ -454,17 +454,17 @@ vck create -f requirements.md
 エージェントの仕事は AppSpec を書くことで、デプロイはシェルコマンド 1 つ。
 
 ```bash
-vck schema > reference.md               # 1. 書き方を読ませる
+fieldsmith schema > reference.md               # 1. 書き方を読ませる
 # 2. エージェントが spec.json を書く
-vck deploy spec.json --dry-run --json   # 3. 検証（認証不要）。exit 2 なら issues を読んで直す
-vck deploy spec.json --json             # 4. デプロイ
+fieldsmith deploy spec.json --dry-run --json   # 3. 検証（認証不要）。exit 2 なら issues を読んで直す
+fieldsmith deploy spec.json --json             # 4. デプロイ
 ```
 
 `--json` を付けると stdout は JSON だけになる。失敗も同じ形で返り、`error.hint` に
 次の一手が入る。
 
 **パスワード認証なら、最初から最後まで人の手が要らない。**
-OAuth の場合は `vck login` だけ人間が一度やる必要がある（ブラウザで認可するため）。
+OAuth の場合は `fieldsmith login` だけ人間が一度やる必要がある（ブラウザで認可するため）。
 CI やエージェントから使うなら、パスワード認証のほうが扱いやすい。
 
 ---
@@ -473,7 +473,7 @@ CI やエージェントから使うなら、パスワード認証のほうが�
 
 | 症状 | 原因と対処 |
 |---|---|
-| `Claude API の認証情報が見つかりません` | 第 4 部だけで必要。`ANTHROPIC_API_KEY` か `ant auth login`。kintone の `vck login` とは別物 |
+| `Claude API の認証情報が見つかりません` | 第 4 部だけで必要。`ANTHROPIC_API_KEY` か `ant auth login`。kintone の `fieldsmith login` とは別物 |
 | kintone の認証で困った | [パスワード認証](setup-password.md) / [OAuth](setup-oauth.md) の「うまくいかないとき」を見る |
 | どちらの認証で繋いでいるか分からない | `--verbose` を付けると接続先と一緒に表示される |
 | `アプリの作成に失敗しました` | 実行ユーザーに「アプリの作成」権限が無い |

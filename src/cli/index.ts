@@ -55,7 +55,7 @@ import { LARGE_PROMPT_CHARS, PromptInputError, resolvePrompt } from "./promptInp
 const program = new Command();
 
 program
-  .name("vck")
+  .name("fieldsmith")
   .description(
     "AppSpec (JSON) から kintone アプリを何度でも作る CLI。AppSpec は要件の文章からも作れる。",
   )
@@ -327,7 +327,7 @@ program
           say("  指示を変えるか、生成された AppSpec を手で直してください。");
         }
         say("");
-        say(`確認したら: vck update ${appId} ${options.out ?? "<保存した spec>"}`);
+        say(`確認したら: fieldsmith update ${appId} ${options.out ?? "<保存した spec>"}`);
 
         emitSuccess({
           command: "revise",

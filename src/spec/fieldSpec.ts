@@ -145,7 +145,7 @@ const baseFieldShape = {
   /**
    * 意味のまとまりの名前 (「書誌情報」「貸出」など)。
    * フォームのレイアウトで、同じ名前のフィールドを横に並べるのに使う。
-   * kintone には送らない、vck の中だけの情報。
+   * kintone には送らない、fieldsmith の中だけの情報。
    */
   group: z.string().min(1).max(32).optional(),
 };
@@ -369,7 +369,7 @@ export function isOptionFieldType(type: string): boolean {
 
 export type FieldSpec = z.infer<typeof fieldSpecSchema>;
 
-/** フィールド型ごとに指定できるキー。`vck schema` の出力に使う。 */
+/** フィールド型ごとに指定できるキー。`fieldsmith schema` の出力に使う。 */
 export interface FieldTypeReference {
   readonly type: SupportedFieldType;
   readonly keys: readonly { readonly name: string; readonly required: boolean }[];

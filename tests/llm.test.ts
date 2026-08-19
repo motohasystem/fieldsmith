@@ -420,7 +420,7 @@ describe("generateAppSpec", () => {
     expect(error!.message).toBe(MISSING_CREDENTIALS_MESSAGE);
     expect(error!.message).toMatch(/ANTHROPIC_API_KEY/);
     // kintone 側の認証と取り違えられやすいので、区別を明示する。
-    expect(error!.message).toMatch(/vck login/);
+    expect(error!.message).toMatch(/fieldsmith login/);
   });
 });
 

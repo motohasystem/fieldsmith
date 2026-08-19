@@ -43,7 +43,7 @@ export class OAuthError extends Error {
   }
 }
 
-/** 再ログインが必要な状態。CLI 側でこれを見て `vck login` を案内する。 */
+/** 再ログインが必要な状態。CLI 側でこれを見て `fieldsmith login` を案内する。 */
 export class ReauthRequiredError extends OAuthError {
   constructor(message: string, detail?: string) {
     super(message, detail);
@@ -153,7 +153,7 @@ export async function refreshAccessToken(
   } catch (error) {
     if (error instanceof OAuthError) {
       throw new ReauthRequiredError(
-        "アクセストークンの更新に失敗しました。`vck login` で認可をやり直してください。",
+        "アクセストークンの更新に失敗しました。`fieldsmith login` で認可をやり直してください。",
         error.detail,
       );
     }

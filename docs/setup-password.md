@@ -17,16 +17,16 @@ kintone のログイン名とパスワードで繋ぐ。**事前の登録も認�
 ## 1. インストール
 
 ```bash
-git clone https://github.com/motohasystem/vibecraft-kintone.git
-cd vibecraft-kintone
+git clone https://github.com/motohasystem/fieldsmith.git
+cd fieldsmith
 npm install
 npm run build
 ```
 
-以降 `vck` と書くところは `npm run vck --` に読み替える。
+以降 `fieldsmith` と書くところは `npm run fieldsmith --` に読み替える。
 
 ```bash
-npm run vck -- schema      # = vck schema
+npm run fieldsmith -- schema      # = fieldsmith schema
 ```
 
 ## 2. 認証情報を書く
@@ -51,7 +51,7 @@ OAuth の設定も残っている場合はパスワード認証が優先され�
 ## 3. 繋がることを確かめる
 
 ```bash
-vck --verbose status 1
+fieldsmith --verbose status 1
 ```
 
 ```
@@ -65,7 +65,7 @@ vck --verbose status 1
 
 | 表示 | 原因 |
 |---|---|
-| `kintone の認証情報が設定されていません` | `.env` の 3 行が読めていない。`vck` をリポジトリ直下で実行しているか確認する |
+| `kintone の認証情報が設定されていません` | `.env` の 3 行が読めていない。`fieldsmith` をリポジトリ直下で実行しているか確認する |
 | `認証に失敗しました。KINTONE_USERNAME と KINTONE_PASSWORD を確認してください` | ログイン名かパスワードが違う |
 | `KINTONE_BASE_URL は URL 形式で指定してください` | `https://` から書く |
 
@@ -77,5 +77,5 @@ vck --verbose status 1
 
 ### 覚えておくこと
 
-- **`vck login` は要らない。** 実行すると「認可の手続きは要りません」と表示されて止まる
+- **`fieldsmith login` は要らない。** 実行すると「認可の手続きは要りません」と表示されて止まる
 - 保存されるものが無いので、やめるときは `.env` の 2 行を消すだけ

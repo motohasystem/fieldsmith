@@ -13,7 +13,7 @@ import { SUPPORTED_FIELD_TYPES, type SupportedFieldType } from "./fieldSpec.js";
  */
 
 export interface PulledSpec {
-  /** そのまま `vck deploy` に渡せる AppSpec。 */
+  /** そのまま `fieldsmith deploy` に渡せる AppSpec。 */
   readonly spec: Record<string, unknown>;
   /** 表現しきれずに落とした設定。人にも機械にも見せる。 */
   readonly warnings: readonly string[];

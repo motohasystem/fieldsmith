@@ -3,7 +3,7 @@
  *
  * CI には載せない。実行には次が必要:
  *   - .env に kintone の設定が揃っていること
- *   - `vck login` 済みであること
+ *   - `fieldsmith login` 済みであること
  *   - 実行ユーザーに「アプリの作成」権限があること
  *
  * 検証用のアプリを 1 つ作り、運用環境への反映が SUCCESS になるところまでを確認する。
@@ -20,8 +20,8 @@ const config = loadKintoneConfig(process.env);
 const suffix = new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14);
 
 const spec = parseAppSpec({
-  name: `vck E2E ${suffix}`,
-  description: "vck の手動 E2E で作成したアプリです。確認後に削除してください。",
+  name: `fieldsmith E2E ${suffix}`,
+  description: "fieldsmith の手動 E2E で作成したアプリです。確認後に削除してください。",
   theme: "BLUE",
   fields: [
     { type: "SINGLE_LINE_TEXT", label: "件名", required: true },

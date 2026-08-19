@@ -76,9 +76,9 @@ export function resolvePrompt(options: ResolvePromptOptions): ResolvedPrompt {
   if (!hasArgument) {
     throw new PromptInputError(
       "作りたいアプリの説明を指定してください。\n" +
-        "  引数で渡す:       vck plan \"案件管理アプリ。案件名、顧客名、金額\"\n" +
-        "  ファイルから読む: vck plan --prompt-file requirements.md\n" +
-        "  標準入力から読む: cat requirements.md | vck plan --prompt-file -",
+        "  引数で渡す:       fieldsmith plan \"案件管理アプリ。案件名、顧客名、金額\"\n" +
+        "  ファイルから読む: fieldsmith plan --prompt-file requirements.md\n" +
+        "  標準入力から読む: cat requirements.md | fieldsmith plan --prompt-file -",
     );
   }
 

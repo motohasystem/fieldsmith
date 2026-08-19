@@ -29,7 +29,7 @@ const config: KintoneConfig = {
 };
 
 function withToken(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { VCK_CONFIG_DIR: mkdtempSync(join(tmpdir(), "vck-upd-")) };
+  const env: NodeJS.ProcessEnv = { FIELDSMITH_CONFIG_DIR: mkdtempSync(join(tmpdir(), "fieldsmith-upd-")) };
   saveToken(
     BASE_URL,
     { accessToken: "a", refreshToken: "r", expiresAt: Date.now() + 3600_000, scope: REQUIRED_SCOPE },
@@ -63,7 +63,7 @@ async function run(desiredSpec: unknown, options: { deploy?: boolean } = {}) {
     return { result, mock };
   } finally {
     server.close();
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   }
 }
 
@@ -192,7 +192,7 @@ describe("何度流しても同じ結果になる", () => {
       { polling },
     );
     server.close();
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
 
     // 差分としては削除候補のままだが、動かす必要はない。
     expect(result.diff.orphaned.map((o) => o.code)).toEqual(["顧客名"]);
@@ -221,7 +221,7 @@ describe("何度流しても同じ結果になる", () => {
       { polling },
     );
     server.close();
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
 
     const added = mock.callsTo("fields")[0]?.body["properties"] as Record<string, unknown> | undefined;
     expect(added === undefined || !(ORPHAN_GROUP_CODE in added)).toBe(true);
@@ -273,7 +273,7 @@ describe("アプリ説明の HTML", () => {
       { polling },
     );
     server.close();
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
 
     expect(result.diff.app).toEqual([]);
     expect(mock.calls.filter((call) => call.method !== "GET")).toEqual([]);

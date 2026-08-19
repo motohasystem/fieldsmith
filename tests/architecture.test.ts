@@ -52,7 +52,7 @@ describe("plan と deploy の境界", () => {
   });
 
   it("デプロイ経路に乱数が無い", () => {
-    // oauth.ts は `vck login` の経路 (認可の state 生成に乱数を使う)。
+    // oauth.ts は `fieldsmith login` の経路 (認可の state 生成に乱数を使う)。
     // deploy が通るのは deploy.ts / client.ts / tokenStore.ts と spec / icon 配下。
     const deployPath = [
       join(SRC, "kintone", "deploy.ts"),
@@ -115,8 +115,8 @@ describe("同じ AppSpec からは同じものが出る", () => {
       });
       server.listen({ onUnhandledRequest: "error" });
 
-      const dir = mkdtempSync(join(tmpdir(), "vck-arch-"));
-      const env: NodeJS.ProcessEnv = { VCK_CONFIG_DIR: dir };
+      const dir = mkdtempSync(join(tmpdir(), "fieldsmith-arch-"));
+      const env: NodeJS.ProcessEnv = { FIELDSMITH_CONFIG_DIR: dir };
       saveToken(
         BASE_URL,
         { accessToken: "a", refreshToken: "r", expiresAt: Date.now() + 3600_000, scope: REQUIRED_SCOPE },

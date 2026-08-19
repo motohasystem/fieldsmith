@@ -21,11 +21,11 @@ const tokenFileSchema = z.object({
 
 /**
  * トークンの保存先。
- * `VCK_CONFIG_DIR` で上書きできるようにしてあるのは、テストと、
+ * `FIELDSMITH_CONFIG_DIR` で上書きできるようにしてあるのは、テストと、
  * 複数の kintone 環境を切り替えて使う場合のため。
  */
 export function tokenFilePath(env: NodeJS.ProcessEnv = process.env): string {
-  const base = env["VCK_CONFIG_DIR"] ?? join(env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "vck");
+  const base = env["FIELDSMITH_CONFIG_DIR"] ?? join(env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "fieldsmith");
   return join(base, "tokens.json");
 }
 

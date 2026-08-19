@@ -345,7 +345,7 @@ export const MISSING_CREDENTIALS_MESSAGE =
   "Claude API の認証情報が見つかりません。次のいずれかを設定してください:\n" +
   "  - .env または環境変数に ANTHROPIC_API_KEY を設定する\n" +
   "  - Anthropic CLI (`ant auth login`) でログインする\n" +
-  "kintone の認証 (`vck login`) とは別に必要です。";
+  "kintone の認証 (`fieldsmith login`) とは別に必要です。";
 
 /** Anthropic SDK が資格情報を解決できなかったときのエラーか。 */
 function isMissingCredentials(error: unknown): boolean {

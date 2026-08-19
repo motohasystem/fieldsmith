@@ -122,9 +122,9 @@ describe("パスワード認証のクライアント", () => {
 
   it("トークンが無くても使える (login が要らない)", () => {
     // OAuth と違い、保存済みトークンもスコープの検査も無い。
-    const env: NodeJS.ProcessEnv = { VCK_CONFIG_DIR: mkdtempSync(join(tmpdir(), "vck-pw-")) };
+    const env: NodeJS.ProcessEnv = { FIELDSMITH_CONFIG_DIR: mkdtempSync(join(tmpdir(), "fieldsmith-pw-")) };
     expect(() => createAuthenticatedKintone({ config, env })).not.toThrow();
-    rmSync(env["VCK_CONFIG_DIR"]!, { recursive: true, force: true });
+    rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
   });
 
   it("X-Cybozu-Authorization で認証する", async () => {
