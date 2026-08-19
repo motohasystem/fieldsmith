@@ -62,7 +62,8 @@ vck plan -f requirements.md -o bookshelf.json
 全機能を一通り動かす手順書がある。副作用の小さい順（接続なし → kintone → Claude API）に
 並べてあるので、途中でやめてもよい。
 
-**[docs/walkthrough.md](docs/walkthrough.md)**
+1. セットアップ: **[パスワード認証](docs/setup-password.md)** か **[OAuth](docs/setup-oauth.md)**
+2. **[お試し手順書](docs/walkthrough.md)**（どちらの認証でも内容は同じ）
 
 ## 使い方
 

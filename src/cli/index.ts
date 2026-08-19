@@ -197,9 +197,7 @@ program
   .action(async (appId: string, options: { out?: string }) => {
     await run("pull", async () => {
       const config = config_();
-      trace(`接続先: ${config.baseUrl}`);
-
-      const kintone = createAuthenticatedKintone({ config, env: process.env });
+      const kintone = connect(config);
       const pulled = await pullApp(appId, kintone, {
         onProgress: (progress) => {
           say(`  ${progress.message}`);
@@ -244,7 +242,7 @@ program
     await run("diff", async () => {
       const desired = readSpecFile(specPath);
       const config = config_();
-      const kintone = createAuthenticatedKintone({ config, env: process.env });
+      const kintone = connect(config);
 
       const pulled = await pullApp(appId, kintone);
       const current = parseAppSpec(pulled.spec);
@@ -297,7 +295,7 @@ program
         const input = readPrompt(instruction, options.promptFile);
 
         const config = config_();
-        const kintone = createAuthenticatedKintone({ config, env: process.env });
+        const kintone = connect(config);
         const pulled = await pullApp(appId, kintone, {
           onProgress: (progress) => say(`  ${progress.message}`),
         });
@@ -353,7 +351,7 @@ program
     await run("update", async () => {
       const desired = readSpecFile(specPath);
       const config = config_();
-      const kintone = createAuthenticatedKintone({ config, env: process.env });
+      const kintone = connect(config);
 
       const status = startStatusLine("差分を調べています");
       let result;
@@ -422,8 +420,7 @@ program
   .argument("<appId>", "アプリ ID")
   .action(async (appId: string) => {
     await run("status", async () => {
-      const config = config_();
-      const kintone = createAuthenticatedKintone({ config, env: process.env });
+      const kintone = connect(config_());
       const { apps } = await kintone.call((client) => client.app.getDeployStatus({ apps: [appId] }));
       for (const app of apps) {
         say(`アプリ ${app.app}: ${app.status}`);
@@ -577,7 +574,6 @@ async function deployWithOptions(spec: AppSpec, options: DeployCommandOptions): 
   }
 
   const config = config_();
-  trace(`接続先: ${config.baseUrl} (${authLabel(config)})`);
 
   // CLI の指定を AppSpec より優先する。
   const spaceId = options.space ?? spec.space;
@@ -588,11 +584,7 @@ async function deployWithOptions(spec: AppSpec, options: DeployCommandOptions): 
     trace(`スペース: ${spaceId}${threadId === undefined ? "" : ` / スレッド ${threadId}`}`);
   }
 
-  const kintone = createAuthenticatedKintone({
-    config,
-    env: process.env,
-    ...(guestSpaceId === undefined ? {} : { guestSpaceId }),
-  });
+  const kintone = connect(config, guestSpaceId);
 
   say(`「${spec.name}」をデプロイします (フィールド ${spec.fields.length} 件)`);
 
@@ -726,6 +718,19 @@ function authLabel(config: KintoneConfig): string {
 }
 
 /**
+ * kintone に繋ぐ。接続先と認証方式は必ず --verbose に残す。
+ * 「どこに繋いでいるつもりか」が分からないまま調べることになるのを防ぐ。
+ */
+function connect(config: KintoneConfig, guestSpaceId?: string | number) {
+  trace(`接続先: ${config.baseUrl} (${authLabel(config)})`);
+  return createAuthenticatedKintone({
+    config,
+    env: process.env,
+    ...(guestSpaceId === undefined ? {} : { guestSpaceId }),
+  });
+}
+
+/**
  * コマンドの共通の入り口。
  *
  * 想定内のエラーはスタックトレースを出さず、**種類ごとに終了コードを分けて**返す。
@@ -792,7 +797,16 @@ async function run(command: string, action: () => Promise<void>): Promise<void> 
       });
       return;
     }
-    throw error;
+
+    // 想定していないエラー。要点だけ出し、スタックトレースは --verbose のときだけ。
+    emitFailure({
+      command,
+      kind: "unknown",
+      message: error instanceof Error ? error.message : String(error),
+    });
+    if (isVerbose() && error instanceof Error && error.stack !== undefined) {
+      console.error(error.stack);
+    }
   }
 }
 

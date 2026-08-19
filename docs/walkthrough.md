@@ -20,73 +20,22 @@
 
 ## 準備
 
-### 必要なもの
+**先に認証の設定を済ませる。** 方式を選んで、対応する手順に従う。
 
-- Node.js 20 以上
-- kintone のアカウント（**アプリの作成権限**が要る）
-- OAuth を試す場合のみ: cybozu.com 共通管理の権限（OAuth クライアントを登録するため）
-- 第 4 部だけ: Claude API のキー、または `ant auth login` 済みの環境
+| | かかる手間 | 向いている場面 |
+|---|---|---|
+| **[パスワード認証](setup-password.md)** | `.env` に 3 行 | 手早く試す / CI・エージェントから使う |
+| **[OAuth](setup-oauth.md)** | クライアント登録 + `vck login` | パスワードを設定に置きたくない |
 
-### インストール
+どちらでもこの手順書の内容は同じように動く。違うのはセットアップだけ。
 
-```bash
-git clone https://github.com/motohasystem/vibecraft-kintone.git
-cd vibecraft-kintone
-npm install
-npm run build
+済んだら、`vck --verbose status 1` で接続先と認証方式が想定どおりか確かめておく。
+
+```
+  接続先: https://<サブドメイン>.cybozu.com (パスワード認証: taro)
 ```
 
-以降 `vck` と書くところは `npm run vck --` に読み替える。
-
-```bash
-npm run vck -- schema      # = vck schema
-```
-
-### kintone の認証を設定する
-
-```bash
-cp .env.example .env
-```
-
-2 通りある。**この手順書は [A] パスワード認証で進める**（事前の登録が要らず、
-`vck login` も不要なため）。OAuth を試したい場合は [B] を読む。
-
-#### [A] パスワード認証（この手順書の既定）
-
-`.env` に 3 行書くだけ。
-
-```bash
-KINTONE_BASE_URL=https://<サブドメイン>.cybozu.com
-KINTONE_USERNAME=<ログイン名>
-KINTONE_PASSWORD=<パスワード>
-```
-
-この場合、第 2 部の `vck login` は**飛ばしてよい**。
-
-> `.env` にパスワードが載る。`.gitignore` 済みだが、共有マシンでは注意する。
-
-#### [B] OAuth（パスワードを設定に置きたくない場合）
-
-cybozu.com 共通管理 → 外部サービス連携 → **OAuth クライアント** で登録する。
-
-| 項目 | 値 |
-|---|---|
-| クライアント名 | `vck` など |
-| リダイレクトエンドポイント | 転送先の URL（実在しなくてよい。例: `https://example.com/callback`）|
-
-登録すると **クライアント ID / シークレット / 認可エンドポイント / トークンエンドポイント**
-が払い出される。`.env` に写す。
-
-```bash
-KINTONE_BASE_URL=https://<サブドメイン>.cybozu.com
-KINTONE_OAUTH_CLIENT_ID=...
-KINTONE_OAUTH_CLIENT_SECRET=...
-KINTONE_OAUTH_REDIRECT_URI=https://example.com/callback
-KINTONE_OAUTH_AUTHORIZATION_ENDPOINT=...
-KINTONE_OAUTH_TOKEN_ENDPOINT=...
-```
-
-こちらを選んだ場合は、第 2 部の `vck login` が必要。
+第 4 部（文章から作る）だけ、Claude API のキーか `ant auth login` 済みの環境が要る。
 
 ---
 
@@ -165,7 +114,7 @@ AppSpec の検証に失敗しました
 ```
 
 **kintone に 1 リクエストも投げる前に**弾かれる。終了コードは種類ごとに分かれている
-（2 = AppSpec を直す、3 = login し直す、4 = `.env` を直す）。
+（2 = AppSpec を直す、3 = 認証情報を確認する、4 = `.env` を直す）。
 
 ### 1-5. 機械可読な出力を見る
 
@@ -182,30 +131,7 @@ vck deploy bad.json --dry-run --json | head -20
 
 ここから kintone に接続する。**実行するとアプリが 1 つ増える。**
 
-### 2-1. 認可する（OAuth を選んだ場合のみ）
-
-パスワード認証なら**この節は飛ばす**。設定した時点で使える状態になっている。
-（`vck login` を実行すると「認可の手続きは要りません」と表示される）
-
-```bash
-vck login
-```
-
-表示された URL をブラウザで開いて許可し、**転送先のアドレスバーの URL をそのまま貼り付ける**。
-（リダイレクト先のページが存在しなくても、URL さえ取れればよい）
-
-要求されるスコープは 3 つ。
-
-| スコープ | 用途 |
-|---|---|
-| `k:app_settings:write` | アプリ作成、フィールド追加、反映 |
-| `k:app_settings:read` | 反映状況の確認 |
-| `k:file:write` | アイコン画像のアップロード |
-
-トークンは `~/.config/vck/tokens.json`（パーミッション 0600）に保存される。
-アクセストークンは 1 時間で切れるが自動更新されるので、再ログインは基本不要。
-
-### 2-2. デプロイする
+### 2-1. デプロイする
 
 ```bash
 vck deploy try.json
@@ -232,7 +158,7 @@ vck deploy try.json
 
 **表示されたアプリ ID を控えておく。** 以降 `<APP_ID>` と書く。
 
-### 2-3. kintone の画面で確認する
+### 2-2. kintone の画面で確認する
 
 URL を開いて、次を見る。
 
@@ -243,7 +169,7 @@ URL を開いて、次を見る。
 - **一覧**が「全件」と「確度の高い案件」の 2 つある
 - 「確度の高い案件」を開くと、受注確度が「高」のものだけに絞られている
 
-### 2-4. 反映状況を確認する
+### 2-3. 反映状況を確認する
 
 ```bash
 vck status <APP_ID>
@@ -253,7 +179,7 @@ vck status <APP_ID>
 アプリ 123: SUCCESS
 ```
 
-### 2-5. 同じ spec からもう 1 つ作る（任意）
+### 2-4. 同じ spec からもう 1 つ作る（任意）
 
 ```bash
 vck deploy try.json
@@ -511,13 +437,10 @@ vck create -f requirements.md
 
 第 2 部と第 4 部で作ったすべてのアプリについて行う。
 
-### トークンを破棄する（任意）
+### 認証情報を片付ける（任意）
 
-```bash
-vck logout
-```
-
-`~/.config/vck/tokens.json` から該当ドメインの分が消える。
+- パスワード認証: `.env` の `KINTONE_USERNAME` / `KINTONE_PASSWORD` を消す
+- OAuth: `vck logout`（`~/.config/vck/tokens.json` から該当ドメインの分が消える）
 
 ### 作業ファイル
 
@@ -538,7 +461,11 @@ vck deploy spec.json --json             # 4. デプロイ
 ```
 
 `--json` を付けると stdout は JSON だけになる。失敗も同じ形で返り、`error.hint` に
-次の一手が入る。`login` だけは人間が一度やる必要があるが、それ以外は非対話で動く。
+次の一手が入る。
+
+**パスワード認証なら、最初から最後まで人の手が要らない。**
+OAuth の場合は `vck login` だけ人間が一度やる必要がある（ブラウザで認可するため）。
+CI やエージェントから使うなら、パスワード認証のほうが扱いやすい。
 
 ---
 
@@ -547,10 +474,8 @@ vck deploy spec.json --json             # 4. デプロイ
 | 症状 | 原因と対処 |
 |---|---|
 | `Claude API の認証情報が見つかりません` | 第 4 部だけで必要。`ANTHROPIC_API_KEY` か `ant auth login`。kintone の `vck login` とは別物 |
-| `保存済みの認証情報にスコープ … が含まれていません` | OAuth の古いトークン。`vck login` をやり直す |
-| `認証に失敗しました。KINTONE_USERNAME と …` | パスワード認証の資格情報が違う |
-| `kintone の認証情報が設定されていません` | `.env` にパスワード認証か OAuth のどちらかを書く |
-| `403 CB_OA01` | OAuth のスコープ不足。`vck login` をやり直す |
+| kintone の認証で困った | [パスワード認証](setup-password.md) / [OAuth](setup-oauth.md) の「うまくいかないとき」を見る |
+| どちらの認証で繋いでいるか分からない | `--verbose` を付けると接続先と一緒に表示される |
 | `アプリの作成に失敗しました` | 実行ユーザーに「アプリの作成」権限が無い |
 | `サーバーの応答を待っています` のまま進まない | Claude API への接続待ち。180 秒で打ち切る。プロキシ配下なら要設定 |
 | 並べ替えたのに `diff` が反応しない | `layout` が `stacked` だと並びに手を触れない。`"layout": "grouped"` にする |

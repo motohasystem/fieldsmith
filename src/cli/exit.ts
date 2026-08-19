@@ -13,7 +13,7 @@ export const EXIT = {
   unknown: 1,
   /** AppSpec が不正。→ AppSpec を直して再実行する。 */
   validation: 2,
-  /** kintone の認証・認可の問題。→ `vck login` を実行する。 */
+  /** kintone の認証・認可の問題。→ 認証情報を確認する (OAuth なら `vck login` をやり直す)。 */
   auth: 3,
   /** 環境変数などの設定不足。→ .env を直す。 */
   config: 4,
@@ -32,7 +32,7 @@ export const EXIT_HINT: Readonly<Record<ExitName, string>> = {
   ok: "成功",
   unknown: "想定外のエラー。メッセージを確認する",
   validation: "AppSpec を直して再実行する",
-  auth: "`vck login` で認可をやり直す",
+  auth: "kintone の認証情報を確認する (OAuth なら `vck login` をやり直す)",
   config: ".env の設定を見直す",
   kintone: "kintone 側の権限を確認するか、時間をおいて再試行する",
   generation: "要件の書き方を変えて再実行する",
