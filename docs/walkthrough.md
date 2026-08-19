@@ -24,7 +24,7 @@
 
 - Node.js 20 以上
 - kintone のアカウント（**アプリの作成権限**が要る）
-- cybozu.com 共通管理の権限（OAuth クライアントを登録するため）
+- OAuth を試す場合のみ: cybozu.com 共通管理の権限（OAuth クライアントを登録するため）
 - 第 4 部だけ: Claude API のキー、または `ant auth login` 済みの環境
 
 ### インストール
@@ -42,7 +42,30 @@ npm run build
 npm run vck -- schema      # = vck schema
 ```
 
-### OAuth クライアントの登録
+### kintone の認証を設定する
+
+```bash
+cp .env.example .env
+```
+
+2 通りある。**この手順書は [A] パスワード認証で進める**（事前の登録が要らず、
+`vck login` も不要なため）。OAuth を試したい場合は [B] を読む。
+
+#### [A] パスワード認証（この手順書の既定）
+
+`.env` に 3 行書くだけ。
+
+```bash
+KINTONE_BASE_URL=https://<サブドメイン>.cybozu.com
+KINTONE_USERNAME=<ログイン名>
+KINTONE_PASSWORD=<パスワード>
+```
+
+この場合、第 2 部の `vck login` は**飛ばしてよい**。
+
+> `.env` にパスワードが載る。`.gitignore` 済みだが、共有マシンでは注意する。
+
+#### [B] OAuth（パスワードを設定に置きたくない場合）
 
 cybozu.com 共通管理 → 外部サービス連携 → **OAuth クライアント** で登録する。
 
@@ -55,10 +78,6 @@ cybozu.com 共通管理 → 外部サービス連携 → **OAuth クライアン
 が払い出される。`.env` に写す。
 
 ```bash
-cp .env.example .env
-```
-
-```bash
 KINTONE_BASE_URL=https://<サブドメイン>.cybozu.com
 KINTONE_OAUTH_CLIENT_ID=...
 KINTONE_OAUTH_CLIENT_SECRET=...
@@ -66,6 +85,8 @@ KINTONE_OAUTH_REDIRECT_URI=https://example.com/callback
 KINTONE_OAUTH_AUTHORIZATION_ENDPOINT=...
 KINTONE_OAUTH_TOKEN_ENDPOINT=...
 ```
+
+こちらを選んだ場合は、第 2 部の `vck login` が必要。
 
 ---
 
@@ -161,7 +182,10 @@ vck deploy bad.json --dry-run --json | head -20
 
 ここから kintone に接続する。**実行するとアプリが 1 つ増える。**
 
-### 2-1. 認可する
+### 2-1. 認可する（OAuth を選んだ場合のみ）
+
+パスワード認証なら**この節は飛ばす**。設定した時点で使える状態になっている。
+（`vck login` を実行すると「認可の手続きは要りません」と表示される）
 
 ```bash
 vck login
@@ -523,7 +547,9 @@ vck deploy spec.json --json             # 4. デプロイ
 | 症状 | 原因と対処 |
 |---|---|
 | `Claude API の認証情報が見つかりません` | 第 4 部だけで必要。`ANTHROPIC_API_KEY` か `ant auth login`。kintone の `vck login` とは別物 |
-| `保存済みの認証情報にスコープ … が含まれていません` | 古いトークン。`vck login` をやり直す |
+| `保存済みの認証情報にスコープ … が含まれていません` | OAuth の古いトークン。`vck login` をやり直す |
+| `認証に失敗しました。KINTONE_USERNAME と …` | パスワード認証の資格情報が違う |
+| `kintone の認証情報が設定されていません` | `.env` にパスワード認証か OAuth のどちらかを書く |
 | `403 CB_OA01` | OAuth のスコープ不足。`vck login` をやり直す |
 | `アプリの作成に失敗しました` | 実行ユーザーに「アプリの作成」権限が無い |
 | `サーバーの応答を待っています` のまま進まない | Claude API への接続待ち。180 秒で打ち切る。プロキシ配下なら要設定 |

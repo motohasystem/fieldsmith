@@ -4,7 +4,13 @@ import { createInterface } from "node:readline/promises";
 import Anthropic from "@anthropic-ai/sdk";
 import { KintoneRestAPIError } from "@kintone/rest-api-client";
 import { Command } from "commander";
-import { ConfigError, loadDotEnv, loadKintoneConfig, type KintoneConfig } from "../config.js";
+import {
+  ConfigError,
+  loadDotEnv,
+  loadKintoneConfig,
+  requireOAuth,
+  type KintoneConfig,
+} from "../config.js";
 import { createAuthenticatedKintone, KintoneRequestError } from "../kintone/client.js";
 import {
   DeployError,
@@ -428,11 +434,11 @@ program
 
 program
   .command("login")
-  .description("kintone の OAuth 認可を行い、トークンを保存する (deploy に必要)")
+  .description("kintone の OAuth 認可を行い、トークンを保存する (OAuth を使う場合のみ)")
   .action(async () => {
     await run("login", async () => {
-      const config = config_();
-      const { url, state } = buildAuthorizationRequest(config);
+      const oauth = requireOAuth(config_());
+      const { url, state } = buildAuthorizationRequest(oauth);
 
       say("次の URL をブラウザで開き、アクセスを許可してください:\n");
       say(`  ${url}\n`);
@@ -445,21 +451,22 @@ program
       rl.close();
 
       const code = extractAuthorizationCode(redirected, state);
-      const token = await exchangeAuthorizationCode(config, code);
-      saveToken(config.baseUrl, token, process.env);
+      const token = await exchangeAuthorizationCode(oauth, code);
+      saveToken(oauth.baseUrl, token, process.env);
 
-      say(`\n✓ ${config.baseUrl} の認証情報を保存しました。`);
+      say(`\n✓ ${oauth.baseUrl} の認証情報を保存しました。`);
       say("  アクセストークンは 1 時間で失効しますが、以降は自動で更新されます。");
-      emitSuccess({ command: "login", baseUrl: config.baseUrl });
+      emitSuccess({ command: "login", baseUrl: oauth.baseUrl });
     });
   });
 
 program
   .command("logout")
-  .description("保存済みのトークンを破棄する")
+  .description("保存済みの OAuth トークンを破棄する")
   .action(async () => {
     await run("logout", async () => {
-      const config = config_();
+      const oauth = requireOAuth(config_());
+      const config = oauth;
       const cleared = clearToken(config.baseUrl, process.env);
       say(
         cleared
@@ -570,7 +577,7 @@ async function deployWithOptions(spec: AppSpec, options: DeployCommandOptions): 
   }
 
   const config = config_();
-  trace(`接続先: ${config.baseUrl}`);
+  trace(`接続先: ${config.baseUrl} (${authLabel(config)})`);
 
   // CLI の指定を AppSpec より優先する。
   const spaceId = options.space ?? spec.space;
@@ -709,6 +716,13 @@ class CliError extends Error {}
 
 function config_(): KintoneConfig {
   return loadKintoneConfig(process.env);
+}
+
+/** どちらの認証で繋いでいるかを表す。 */
+function authLabel(config: KintoneConfig): string {
+  return config.auth.kind === "password"
+    ? `パスワード認証: ${config.auth.username}`
+    : "OAuth";
 }
 
 /**

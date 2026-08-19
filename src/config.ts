@@ -2,29 +2,43 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 
 /**
- * kintone への接続と OAuth クライアントの設定。
- * 認可・トークンの各エンドポイント URL は cybozu.com 共通管理で OAuth クライアントを
- * 登録したときに払い出される値なので、ハードコードせず設定から読む。
+ * kintone への接続設定。
+ *
+ * 認証は 2 通り選べる。
+ *   - **パスワード認証**: ログイン名とパスワードだけ。事前の登録が要らない
+ *   - **OAuth**: 事前に OAuth クライアントを登録するが、パスワードを保存しない
+ *
+ * どちらでもアプリの作成・更新に必要な API は使える。
+ * 認可・トークンの各エンドポイント URL は OAuth クライアントの登録時に払い出される値なので、
+ * ハードコードせず設定から読む。
  */
-export const kintoneConfigSchema = z.object({
-  baseUrl: z.string().url("KINTONE_BASE_URL は URL 形式で指定してください"),
-  clientId: z.string().min(1),
-  clientSecret: z.string().min(1),
-  redirectUri: z.string().url("KINTONE_OAUTH_REDIRECT_URI は URL 形式で指定してください"),
-  authorizationEndpoint: z.string().url(),
-  tokenEndpoint: z.string().url(),
-});
 
-export type KintoneConfig = z.infer<typeof kintoneConfigSchema>;
+/** パスワード認証。`X-Cybozu-Authorization` ヘッダーで送る。 */
+export interface PasswordAuth {
+  readonly kind: "password";
+  readonly username: string;
+  readonly password: string;
+}
 
-const ENV_KEYS = {
-  baseUrl: "KINTONE_BASE_URL",
-  clientId: "KINTONE_OAUTH_CLIENT_ID",
-  clientSecret: "KINTONE_OAUTH_CLIENT_SECRET",
-  redirectUri: "KINTONE_OAUTH_REDIRECT_URI",
-  authorizationEndpoint: "KINTONE_OAUTH_AUTHORIZATION_ENDPOINT",
-  tokenEndpoint: "KINTONE_OAUTH_TOKEN_ENDPOINT",
-} as const satisfies Record<keyof KintoneConfig, string>;
+/** OAuth 2.0。アクセストークンを取得して `Authorization: Bearer` で送る。 */
+export interface OAuthAuth {
+  readonly kind: "oauth";
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly redirectUri: string;
+  readonly authorizationEndpoint: string;
+  readonly tokenEndpoint: string;
+}
+
+export type KintoneAuth = PasswordAuth | OAuthAuth;
+
+export interface KintoneConfig {
+  readonly baseUrl: string;
+  readonly auth: KintoneAuth;
+}
+
+/** OAuth 固有の処理に渡す形。 */
+export type OAuthConfig = { readonly baseUrl: string } & OAuthAuth;
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -33,40 +47,141 @@ export class ConfigError extends Error {
   }
 }
 
+const BASE_URL_KEY = "KINTONE_BASE_URL";
+
+const PASSWORD_KEYS = {
+  username: "KINTONE_USERNAME",
+  password: "KINTONE_PASSWORD",
+} as const;
+
+const OAUTH_KEYS = {
+  clientId: "KINTONE_OAUTH_CLIENT_ID",
+  clientSecret: "KINTONE_OAUTH_CLIENT_SECRET",
+  redirectUri: "KINTONE_OAUTH_REDIRECT_URI",
+  authorizationEndpoint: "KINTONE_OAUTH_AUTHORIZATION_ENDPOINT",
+  tokenEndpoint: "KINTONE_OAUTH_TOKEN_ENDPOINT",
+} as const;
+
+const oauthSchema = z.object({
+  clientId: z.string().min(1),
+  clientSecret: z.string().min(1),
+  redirectUri: z.string().url(`${OAUTH_KEYS.redirectUri} は URL 形式で指定してください`),
+  authorizationEndpoint: z.string().url(`${OAUTH_KEYS.authorizationEndpoint} は URL 形式で指定してください`),
+  tokenEndpoint: z.string().url(`${OAUTH_KEYS.tokenEndpoint} は URL 形式で指定してください`),
+});
+
+const passwordSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
+
 /**
- * 環境変数から kintone の設定を読む。
- * 足りない環境変数は名前を列挙して伝える (1 つずつ試行錯誤させないため)。
+ * 環境変数から接続設定を読む。
+ *
+ * どちらの認証方式を使うかは、設定されている環境変数から判断する。
+ * 両方揃っている場合はパスワード認証を使う (`KINTONE_AUTH` で明示的に選べる)。
  */
 export function loadKintoneConfig(env: NodeJS.ProcessEnv = process.env): KintoneConfig {
-  const raw: Record<string, string | undefined> = {};
-  const missing: string[] = [];
-
-  for (const [key, envKey] of Object.entries(ENV_KEYS)) {
-    const value = env[envKey];
-    if (value === undefined || value.trim() === "") {
-      missing.push(envKey);
-    } else {
-      raw[key] = value.trim();
-    }
+  const baseUrl = read(env, BASE_URL_KEY);
+  if (baseUrl === undefined) {
+    throw new ConfigError(
+      `${BASE_URL_KEY} が設定されていません。\n` + ".env.example を参考に .env を作成してください。",
+    );
+  }
+  if (!z.string().url().safeParse(baseUrl).success) {
+    throw new ConfigError(`${BASE_URL_KEY} は URL 形式で指定してください (例: https://example.cybozu.com)`);
   }
 
-  if (missing.length > 0) {
+  const requested = read(env, "KINTONE_AUTH");
+  if (requested !== undefined && requested !== "password" && requested !== "oauth") {
+    throw new ConfigError('KINTONE_AUTH には "password" か "oauth" を指定してください。');
+  }
+
+  const hasPassword = Object.values(PASSWORD_KEYS).every((key) => read(env, key) !== undefined);
+  const hasOAuth = Object.values(OAUTH_KEYS).some((key) => read(env, key) !== undefined);
+  const kind = requested ?? (hasPassword ? "password" : hasOAuth ? "oauth" : undefined);
+
+  if (kind === undefined) {
     throw new ConfigError(
-      `次の環境変数が設定されていません:\n  ${missing.join("\n  ")}\n` +
+      "kintone の認証情報が設定されていません。どちらかを設定してください。\n" +
+        `  パスワード認証: ${Object.values(PASSWORD_KEYS).join(", ")}\n` +
+        `  OAuth        : ${Object.values(OAUTH_KEYS).join(", ")}\n` +
         ".env.example を参考に .env を作成してください。",
     );
   }
 
-  const result = kintoneConfigSchema.safeParse(raw);
+  return {
+    // 末尾のスラッシュは URL を組み立てるときに二重化するので落とす。
+    baseUrl: baseUrl.replace(/\/+$/, ""),
+    auth: kind === "password" ? readPassword(env) : readOAuth(env),
+  };
+}
+
+function readPassword(env: NodeJS.ProcessEnv): PasswordAuth {
+  const raw = collect(env, PASSWORD_KEYS, "パスワード認証");
+  const result = passwordSchema.safeParse(raw);
   if (!result.success) {
-    const details = result.error.issues
-      .map((issue) => `  ${ENV_KEYS[issue.path[0] as keyof KintoneConfig] ?? issue.path.join(".")}: ${issue.message}`)
-      .join("\n");
-    throw new ConfigError(`環境変数の値が不正です:\n${details}`);
+    throw new ConfigError(describeIssues(result.error, PASSWORD_KEYS));
+  }
+  return { kind: "password", ...result.data };
+}
+
+function readOAuth(env: NodeJS.ProcessEnv): OAuthAuth {
+  const raw = collect(env, OAUTH_KEYS, "OAuth");
+  const result = oauthSchema.safeParse(raw);
+  if (!result.success) {
+    throw new ConfigError(describeIssues(result.error, OAUTH_KEYS));
+  }
+  return { kind: "oauth", ...result.data };
+}
+
+/** 足りない環境変数は名前を列挙して伝える (1 つずつ試行錯誤させないため)。 */
+function collect(
+  env: NodeJS.ProcessEnv,
+  keys: Readonly<Record<string, string>>,
+  label: string,
+): Record<string, string> {
+  const raw: Record<string, string> = {};
+  const missing: string[] = [];
+
+  for (const [field, key] of Object.entries(keys)) {
+    const value = read(env, key);
+    if (value === undefined) missing.push(key);
+    else raw[field] = value;
   }
 
-  // 末尾のスラッシュは kintone のクライアントが URL を組み立てるときに二重化するので落とす。
-  return { ...result.data, baseUrl: result.data.baseUrl.replace(/\/+$/, "") };
+  if (missing.length > 0) {
+    throw new ConfigError(
+      `${label}に必要な環境変数が設定されていません:\n  ${missing.join("\n  ")}`,
+    );
+  }
+  return raw;
+}
+
+function describeIssues(error: z.ZodError, keys: Readonly<Record<string, string>>): string {
+  const details = error.issues
+    .map((issue) => `  ${keys[String(issue.path[0])] ?? issue.path.join(".")}: ${issue.message}`)
+    .join("\n");
+  return `環境変数の値が不正です:\n${details}`;
+}
+
+function read(env: NodeJS.ProcessEnv, key: string): string | undefined {
+  const value = env[key];
+  return value === undefined || value.trim() === "" ? undefined : value.trim();
+}
+
+/**
+ * OAuth 固有の処理に渡す形にする。
+ * パスワード認証で設定されている場合は、その旨を伝えて止める。
+ */
+export function requireOAuth(config: KintoneConfig): OAuthConfig {
+  if (config.auth.kind !== "oauth") {
+    throw new ConfigError(
+      "この操作は OAuth を設定しているときだけ使えます。\n" +
+        "  いまはパスワード認証で設定されています。認可の手続きは要りません。",
+    );
+  }
+  return { baseUrl: config.baseUrl, ...config.auth };
 }
 
 /**

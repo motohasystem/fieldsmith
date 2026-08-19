@@ -11,6 +11,7 @@ export interface RecordedCall {
   readonly path: string;
   readonly method: string;
   readonly body: Record<string, unknown>;
+  readonly headers: Record<string, string>;
 }
 
 export interface KintoneMockOptions {
@@ -33,6 +34,8 @@ export interface KintoneMockOptions {
 export interface KintoneMock {
   readonly calls: RecordedCall[];
   callsTo(path: string): RecordedCall[];
+  /** そのパスへの最初のリクエストのヘッダー (小文字のキー)。 */
+  headersOf(path: string): Record<string, string> | undefined;
 }
 
 /**
@@ -48,9 +51,12 @@ export function setupKintoneMock(options: KintoneMockOptions = {}) {
   const record = async (request: Request, path: string): Promise<Record<string, unknown>> => {
     const text = await request.text();
     const body = text === "" ? {} : (JSON.parse(text) as Record<string, unknown>);
-    calls.push({ path, method: request.method, body });
+    calls.push({ path, method: request.method, body, headers: headersOf(request) });
     return body;
   };
+
+  const headersOf = (request: Request): Record<string, string> =>
+    Object.fromEntries([...request.headers.entries()]);
 
   const maybeFail = (path: string): Response | null => {
     const failure = options.failOnce;
@@ -79,7 +85,7 @@ export function setupKintoneMock(options: KintoneMockOptions = {}) {
     }),
     // 既存アプリの読み取り。pull / update は動作テスト環境を見るので両方に応える。
     http.get(`${prefix}/app/settings.json`, () => {
-      calls.push({ path: "getSettings", method: "GET", body: {} });
+      calls.push({ path: "getSettings", method: "GET", body: {}, headers: {} });
       return HttpResponse.json({
         name: "既存アプリ",
         description: "",
@@ -90,15 +96,15 @@ export function setupKintoneMock(options: KintoneMockOptions = {}) {
       });
     }),
     http.get(`${prefix}/app/form/fields.json`, () => {
-      calls.push({ path: "getFields", method: "GET", body: {} });
+      calls.push({ path: "getFields", method: "GET", body: {}, headers: {} });
       return HttpResponse.json({ properties: options.existing?.properties ?? {}, revision: "1" });
     }),
     http.get(`${prefix}/app/views.json`, () => {
-      calls.push({ path: "getViews", method: "GET", body: {} });
+      calls.push({ path: "getViews", method: "GET", body: {}, headers: {} });
       return HttpResponse.json({ views: options.existing?.views ?? {}, revision: "1" });
     }),
     http.get(`${BASE_URL}/k/v1/app/settings.json`, () => {
-      calls.push({ path: "getSettings", method: "GET", body: {} });
+      calls.push({ path: "getSettings", method: "GET", body: {}, headers: {} });
       return HttpResponse.json({
         name: "既存アプリ",
         description: "",
@@ -109,11 +115,11 @@ export function setupKintoneMock(options: KintoneMockOptions = {}) {
       });
     }),
     http.get(`${BASE_URL}/k/v1/app/form/fields.json`, () => {
-      calls.push({ path: "getFields", method: "GET", body: {} });
+      calls.push({ path: "getFields", method: "GET", body: {}, headers: {} });
       return HttpResponse.json({ properties: options.existing?.properties ?? {}, revision: "1" });
     }),
     http.get(`${BASE_URL}/k/v1/app/form/layout.json`, () => {
-      calls.push({ path: "getLiveLayout", method: "GET", body: {} });
+      calls.push({ path: "getLiveLayout", method: "GET", body: {}, headers: {} });
       return HttpResponse.json({
         layout: Object.keys(options.existing?.properties ?? {}).map((code) => ({
           type: "ROW",
@@ -123,7 +129,7 @@ export function setupKintoneMock(options: KintoneMockOptions = {}) {
       });
     }),
     http.get(`${BASE_URL}/k/v1/app/views.json`, () => {
-      calls.push({ path: "getViews", method: "GET", body: {} });
+      calls.push({ path: "getViews", method: "GET", body: {}, headers: {} });
       return HttpResponse.json({ views: options.existing?.views ?? {}, revision: "1" });
     }),
     http.put(`${prefix}/app/form/fields.json`, async ({ request }) => {
@@ -133,7 +139,7 @@ export function setupKintoneMock(options: KintoneMockOptions = {}) {
       return HttpResponse.json({ revision: String(revision++) });
     }),
     http.get(`${prefix}/app/form/layout.json`, ({ request }) => {
-      calls.push({ path: "getLayout", method: "GET", body: {} });
+      calls.push({ path: "getLayout", method: "GET", body: {}, headers: {} });
       const failure = maybeFail("getLayout");
       if (failure) return failure;
       // フィールド追加直後の kintone は 1 行 1 フィールドで返す。
@@ -164,7 +170,7 @@ export function setupKintoneMock(options: KintoneMockOptions = {}) {
     http.post(options.guestSpaceId === undefined ? `${BASE_URL}/k/v1/file.json` : `${BASE_URL}/k/guest/${options.guestSpaceId}/v1/file.json`, async ({ request }) => {
       // multipart なので本文は読まず、呼ばれたことと大きさだけ記録する。
       const body = await request.arrayBuffer();
-      calls.push({ path: "file", method: "POST", body: { bytes: body.byteLength } });
+      calls.push({ path: "file", method: "POST", body: { bytes: body.byteLength }, headers: headersOf(request) });
       const failure = maybeFail("file");
       if (failure) return failure;
       return HttpResponse.json({ fileKey: "test-file-key" });
@@ -177,11 +183,11 @@ export function setupKintoneMock(options: KintoneMockOptions = {}) {
     }),
     // OAuth では使えない API。呼ばれてしまったことを検知するために置いている。
     http.get(`${BASE_URL}/k/v1/space.json`, () => {
-      calls.push({ path: "spaceInfo", method: "GET", body: {} });
+      calls.push({ path: "spaceInfo", method: "GET", body: {}, headers: {} });
       return HttpResponse.json({ defaultThread: "999" });
     }),
     http.get(`${prefix}/app/deploy.json`, ({ request }) => {
-      calls.push({ path: "deployStatus", method: "GET", body: {} });
+      calls.push({ path: "deployStatus", method: "GET", body: {}, headers: headersOf(request) });
       const failure = maybeFail("deployStatus");
       if (failure) return failure;
       const url = new URL(request.url);
@@ -194,6 +200,7 @@ export function setupKintoneMock(options: KintoneMockOptions = {}) {
   const mock: KintoneMock = {
     calls,
     callsTo: (path) => calls.filter((call) => call.path === path),
+    headersOf: (path) => calls.find((call) => call.path === path)?.headers,
   };
 
   return { server, mock };

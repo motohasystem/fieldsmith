@@ -115,10 +115,45 @@ cp .env.example .env   # 値を埋める
 
 必要な認証情報は用途で分かれる。**`deploy` だけ使うなら kintone 側だけでよい。**
 
-| 用途 | 設定するもの | 必要なコマンド |
+| 用途 | 設定するもの |
+|---|---|
+| `deploy` `pull` `diff` `update` `status` | kintone の認証情報（下記） |
+| `plan` `create` `revise` | 上記 + `ANTHROPIC_API_KEY` または `ant auth login` |
+
+### kintone の認証は 2 通りから選ぶ
+
+| | パスワード認証 | OAuth |
 |---|---|---|
-| `deploy` `status` | OAuth クライアント（`.env`） | `vck login` |
-| `plan` `create` | 上記 + `ANTHROPIC_API_KEY` または `ant auth login` | なし |
+| 事前の登録 | **不要** | OAuth クライアントの登録が要る |
+| `vck login` | **不要** | 必要（ブラウザで認可）|
+| 設定に置くもの | ログイン名とパスワード | クライアント ID / シークレット |
+| パスワードの保存 | **`.env` に置く** | 置かない（トークンのみ）|
+| CI などの非対話環境 | そのまま動く | 事前に認可してトークンを配る必要がある |
+
+**手早く試すならパスワード認証**、パスワードを設定に置きたくないなら OAuth。
+どちらでもアプリの作成・更新に必要な API は使える。
+
+```bash
+# パスワード認証
+KINTONE_BASE_URL=https://example.cybozu.com
+KINTONE_USERNAME=taro
+KINTONE_PASSWORD=...
+```
+
+```bash
+# OAuth（値は登録時に払い出される）
+KINTONE_BASE_URL=https://example.cybozu.com
+KINTONE_OAUTH_CLIENT_ID=...
+KINTONE_OAUTH_CLIENT_SECRET=...
+KINTONE_OAUTH_REDIRECT_URI=https://example.com/callback
+KINTONE_OAUTH_AUTHORIZATION_ENDPOINT=...
+KINTONE_OAUTH_TOKEN_ENDPOINT=...
+```
+
+両方あるときはパスワード認証を使う。`KINTONE_AUTH=oauth` で明示的に選べる。
+いま何で繋いでいるかは `--verbose` で分かる。
+
+いずれの場合も、実行するユーザーに **「アプリの作成」権限**が必要。
 
 ### kintone 側の準備
 
@@ -129,7 +164,7 @@ cp .env.example .env   # 値を埋める
    が払い出されるので、そのまま `.env` に書く。
 3. 実行するユーザーに **「アプリの作成」権限** が必要。
 
-必要な OAuth スコープは次の 2 つ。レコードには触れないので、レコード系のスコープは要求しない。
+OAuth を使う場合、必要なスコープは次の 3 つ。レコードには触れないので、レコード系のスコープは要求しない。
 
 | スコープ | 用途 |
 |---|---|

@@ -12,11 +12,14 @@ import { join } from "node:path";
 
 const config: KintoneConfig = {
   baseUrl: BASE_URL,
-  clientId: "client",
-  clientSecret: "secret",
-  redirectUri: "https://app.example.com/oauth/callback",
-  authorizationEndpoint: `${BASE_URL}/oauth2/authorization`,
-  tokenEndpoint: `${BASE_URL}/oauth2/token`,
+  auth: {
+    kind: "oauth",
+    clientId: "client",
+    clientSecret: "secret",
+    redirectUri: "https://app.example.com/oauth/callback",
+    authorizationEndpoint: `${BASE_URL}/oauth2/authorization`,
+    tokenEndpoint: `${BASE_URL}/oauth2/token`,
+  },
 };
 
 function withToken(): NodeJS.ProcessEnv {

@@ -18,11 +18,14 @@ import { BASE_URL, noSleep, setupKintoneMock } from "./kintoneMock.js";
 
 const config: KintoneConfig = {
   baseUrl: BASE_URL,
-  clientId: "c",
-  clientSecret: "s",
-  redirectUri: "https://app.example.com/cb",
-  authorizationEndpoint: `${BASE_URL}/oauth2/authorization`,
-  tokenEndpoint: `${BASE_URL}/oauth2/token`,
+  auth: {
+    kind: "oauth",
+    clientId: "c",
+    clientSecret: "s",
+    redirectUri: "https://app.example.com/cb",
+    authorizationEndpoint: `${BASE_URL}/oauth2/authorization`,
+    tokenEndpoint: `${BASE_URL}/oauth2/token`,
+  },
 };
 
 function withToken(): NodeJS.ProcessEnv {

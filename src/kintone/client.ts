@@ -1,5 +1,6 @@
 import { KintoneRestAPIClient, KintoneRestAPIError } from "@kintone/rest-api-client";
 import type { KintoneConfig } from "../config.js";
+import { requireOAuth } from "../config.js";
 import { missingScopes, ReauthRequiredError, refreshAccessToken } from "./oauth.js";
 import { isExpired, loadToken, saveToken, type StoredToken } from "./tokenStore.js";
 
@@ -54,7 +55,72 @@ export interface CreateClientOptions {
  * 事前チェックと 401 リトライの二段構えで再ログインをほぼ不要にする。
  */
 export function createAuthenticatedKintone(options: CreateClientOptions): AuthenticatedKintone {
+  return options.config.auth.kind === "password"
+    ? createWithPassword(options)
+    : createWithOAuth(options);
+}
+
+/**
+ * パスワード認証のクライアント。
+ *
+ * 資格情報が固定なので、トークンの保存も更新もスコープの検査も要らない。
+ * 401 が返ったら、それは認証情報そのものが正しくないということ。
+ */
+function createWithPassword(options: CreateClientOptions): AuthenticatedKintone {
+  const { config } = options;
+  const auth = config.auth as Extract<KintoneConfig["auth"], { kind: "password" }>;
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  const client =
+    options.clientFactory?.("") ??
+    new KintoneRestAPIClient({
+      baseUrl: config.baseUrl,
+      auth: { username: auth.username, password: auth.password },
+      ...(options.guestSpaceId === undefined ? {} : { guestSpaceId: options.guestSpaceId }),
+      socketTimeout: options.socketTimeoutMs ?? DEFAULT_SOCKET_TIMEOUT_MS,
+      userAgent: USER_AGENT,
+    });
+
+  const credentials = Buffer.from(`${auth.username}:${auth.password}`).toString("base64");
+
+  return {
+    async call<T>(operation: (client: KintoneRestAPIClient) => Promise<T>): Promise<T> {
+      try {
+        return await operation(client);
+      } catch (error) {
+        if (isUnauthorized(error)) {
+          throw new ReauthRequiredError(
+            `${config.baseUrl} の認証に失敗しました。` +
+              " KINTONE_USERNAME と KINTONE_PASSWORD を確認してください。",
+          );
+        }
+        throw error;
+      }
+    },
+
+    async request<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<T> {
+      return await rawRequest<T>(
+        { "X-Cybozu-Authorization": credentials },
+        config.baseUrl,
+        method,
+        path,
+        body,
+        options.socketTimeoutMs ?? DEFAULT_SOCKET_TIMEOUT_MS,
+        fetchImpl,
+      );
+    },
+  };
+}
+
+/**
+ * OAuth のクライアント。
+ *
+ * アクセストークンは 1 時間で失効する一方リフレッシュトークンは無期限なので、
+ * 事前チェックと 401 リトライの二段構えで再ログインをほぼ不要にする。
+ */
+function createWithOAuth(options: CreateClientOptions): AuthenticatedKintone {
   const { config, env = process.env, fetchImpl = fetch } = options;
+  const oauth = requireOAuth(config);
 
   const stored = loadToken(config.baseUrl, env);
   if (stored === null) {
@@ -83,41 +149,12 @@ export function createAuthenticatedKintone(options: CreateClientOptions): Authen
         auth: { oAuthToken: accessToken },
         ...(options.guestSpaceId === undefined ? {} : { guestSpaceId: options.guestSpaceId }),
         socketTimeout: options.socketTimeoutMs ?? DEFAULT_SOCKET_TIMEOUT_MS,
-        userAgent: "vck (vibe-crafting-kintone)",
+        userAgent: USER_AGENT,
       }));
 
   const refresh = async (): Promise<void> => {
-    token = await refreshAccessToken(config, token.refreshToken, fetchImpl);
+    token = await refreshAccessToken(oauth, token.refreshToken, fetchImpl);
     saveToken(config.baseUrl, token, env);
-  };
-
-  const rawRequest = async <T>(
-    method: "GET" | "POST" | "PUT",
-    path: string,
-    body: unknown,
-  ): Promise<T> => {
-    const url = `${config.baseUrl}${path}`;
-    const response = await fetchImpl(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token.accessToken}`,
-        "Content-Type": "application/json",
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(options.socketTimeoutMs ?? DEFAULT_SOCKET_TIMEOUT_MS),
-    });
-
-    const text = await response.text();
-    const parsed = text === "" ? {} : (JSON.parse(text) as Record<string, unknown>);
-
-    if (!response.ok) {
-      throw new KintoneRequestError(
-        typeof parsed["message"] === "string" ? parsed["message"] : `HTTP ${response.status}`,
-        response.status,
-        typeof parsed["code"] === "string" ? parsed["code"] : undefined,
-      );
-    }
-    return parsed as T;
   };
 
   return {
@@ -141,15 +178,58 @@ export function createAuthenticatedKintone(options: CreateClientOptions): Authen
         await refresh();
       }
 
+      const send = (): Promise<T> =>
+        rawRequest<T>(
+          { Authorization: `Bearer ${token.accessToken}` },
+          config.baseUrl,
+          method,
+          path,
+          body,
+          options.socketTimeoutMs ?? DEFAULT_SOCKET_TIMEOUT_MS,
+          fetchImpl,
+        );
+
       try {
-        return await rawRequest<T>(method, path, body);
+        return await send();
       } catch (error) {
         if (!(error instanceof KintoneRequestError) || error.status !== 401) throw error;
         await refresh();
-        return await rawRequest<T>(method, path, body);
+        return await send();
       }
     },
   };
+}
+
+const USER_AGENT = "vck (vibe-crafting-kintone)";
+
+/** 認証ヘッダーだけを差し替えて REST API を直接叩く。 */
+async function rawRequest<T>(
+  authHeaders: Record<string, string>,
+  baseUrl: string,
+  method: "GET" | "POST" | "PUT",
+  path: string,
+  body: unknown,
+  timeoutMs: number,
+  fetchImpl: typeof fetch,
+): Promise<T> {
+  const response = await fetchImpl(`${baseUrl}${path}`, {
+    method,
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  const text = await response.text();
+  const parsed = text === "" ? {} : (JSON.parse(text) as Record<string, unknown>);
+
+  if (!response.ok) {
+    throw new KintoneRequestError(
+      typeof parsed["message"] === "string" ? parsed["message"] : `HTTP ${response.status}`,
+      response.status,
+      typeof parsed["code"] === "string" ? parsed["code"] : undefined,
+    );
+  }
+  return parsed as T;
 }
 
 /** ゲストスペースかどうかで API のパスの前置きが変わる。 */

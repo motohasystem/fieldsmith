@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { KintoneConfig } from "../config.js";
+import type { OAuthConfig } from "../config.js";
 import type { StoredToken } from "./tokenStore.js";
 
 /**
@@ -57,7 +57,7 @@ export interface AuthorizationRequest {
 }
 
 /** 認可 URL と、リダイレクト後に照合するための state を生成する。 */
-export function buildAuthorizationRequest(config: KintoneConfig): AuthorizationRequest {
+export function buildAuthorizationRequest(config: OAuthConfig): AuthorizationRequest {
   const state = randomBytes(24).toString("base64url");
   const url = new URL(config.authorizationEndpoint);
   url.searchParams.set("client_id", config.clientId);
@@ -114,7 +114,7 @@ interface TokenResponse {
 
 /** 認可コードをアクセストークン・リフレッシュトークンに交換する。 */
 export async function exchangeAuthorizationCode(
-  config: KintoneConfig,
+  config: OAuthConfig,
   code: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<StoredToken> {
@@ -138,7 +138,7 @@ export async function exchangeAuthorizationCode(
  * kintone のリフレッシュトークンには有効期限が無いため、通常はこの経路だけで動き続ける。
  */
 export async function refreshAccessToken(
-  config: KintoneConfig,
+  config: OAuthConfig,
   refreshToken: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<StoredToken> {
@@ -165,7 +165,7 @@ export async function refreshAccessToken(
 }
 
 async function requestToken(
-  config: KintoneConfig,
+  config: OAuthConfig,
   body: URLSearchParams,
   fetchImpl: typeof fetch,
 ): Promise<TokenResponse> {

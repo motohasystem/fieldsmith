@@ -19,14 +19,16 @@ import {
 } from "../src/kintone/oauth.js";
 import { clearToken, isExpired, loadToken, saveToken, tokenFilePath } from "../src/kintone/tokenStore.js";
 
-const config: KintoneConfig = {
-  baseUrl: "https://example.cybozu.com",
+const oauth = {
+  kind: "oauth" as const,
   clientId: "client-id",
   clientSecret: "client-secret",
   redirectUri: "https://app.example.com/oauth/callback",
   authorizationEndpoint: "https://example.cybozu.com/oauth2/authorization",
   tokenEndpoint: "https://example.cybozu.com/oauth2/token",
 };
+const oauthConfig = { baseUrl: "https://example.cybozu.com", ...oauth };
+const config: KintoneConfig = { baseUrl: "https://example.cybozu.com", auth: oauth };
 
 let env: NodeJS.ProcessEnv;
 
@@ -76,18 +78,18 @@ describe("必要なスコープ", () => {
 
 describe("認可 URL", () => {
   it("必要なスコープと state を含む", () => {
-    const { url, state } = buildAuthorizationRequest(config);
+    const { url, state } = buildAuthorizationRequest(oauthConfig);
     const parsed = new URL(url);
     expect(parsed.searchParams.get("scope")).toBe(REQUIRED_SCOPE);
     expect(parsed.searchParams.get("response_type")).toBe("code");
     expect(parsed.searchParams.get("client_id")).toBe("client-id");
-    expect(parsed.searchParams.get("redirect_uri")).toBe(config.redirectUri);
+    expect(parsed.searchParams.get("redirect_uri")).toBe(oauthConfig.redirectUri);
     expect(parsed.searchParams.get("state")).toBe(state);
     expect(state.length).toBeGreaterThan(20);
   });
 
   it("呼ぶたびに異なる state を生成する", () => {
-    expect(buildAuthorizationRequest(config).state).not.toBe(buildAuthorizationRequest(config).state);
+    expect(buildAuthorizationRequest(oauthConfig).state).not.toBe(buildAuthorizationRequest(oauthConfig).state);
   });
 });
 
@@ -128,10 +130,10 @@ describe("トークン交換", () => {
       jsonResponse({ access_token: "at", refresh_token: "rt", expires_in: 3600 }),
     );
 
-    const token = await exchangeAuthorizationCode(config, "code-1", fetchImpl as unknown as typeof fetch);
+    const token = await exchangeAuthorizationCode(oauthConfig, "code-1", fetchImpl as unknown as typeof fetch);
 
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe(config.tokenEndpoint);
+    expect(url).toBe(oauthConfig.tokenEndpoint);
     expect((init.headers as Record<string, string>)["Authorization"]).toBe(
       `Basic ${Buffer.from("client-id:client-secret").toString("base64")}`,
     );
@@ -141,7 +143,7 @@ describe("トークン交換", () => {
     const body = new URLSearchParams(init.body as string);
     expect(body.get("grant_type")).toBe("authorization_code");
     expect(body.get("code")).toBe("code-1");
-    expect(body.get("redirect_uri")).toBe(config.redirectUri);
+    expect(body.get("redirect_uri")).toBe(oauthConfig.redirectUri);
 
     expect(token.accessToken).toBe("at");
     expect(token.refreshToken).toBe("rt");
@@ -150,21 +152,21 @@ describe("トークン交換", () => {
 
   it("expires_in が無ければ 1 時間として扱う", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ access_token: "at", refresh_token: "rt" }));
-    const token = await exchangeAuthorizationCode(config, "c", fetchImpl as unknown as typeof fetch);
+    const token = await exchangeAuthorizationCode(oauthConfig, "c", fetchImpl as unknown as typeof fetch);
     expect(token.expiresAt).toBeGreaterThan(Date.now() + 3500_000);
   });
 
   it("refresh_token が返らなければ失敗させる", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ access_token: "at" }));
     await expect(
-      exchangeAuthorizationCode(config, "c", fetchImpl as unknown as typeof fetch),
+      exchangeAuthorizationCode(oauthConfig, "c", fetchImpl as unknown as typeof fetch),
     ).rejects.toThrow(/リフレッシュトークンが返されませんでした/);
   });
 
   it("HTTP エラーの本文を添えて失敗させる", async () => {
     const fetchImpl = vi.fn(async () => new Response("invalid_grant", { status: 400 }));
     await expect(
-      exchangeAuthorizationCode(config, "c", fetchImpl as unknown as typeof fetch),
+      exchangeAuthorizationCode(oauthConfig, "c", fetchImpl as unknown as typeof fetch),
     ).rejects.toThrow(/HTTP 400[\s\S]*invalid_grant/);
   });
 });
@@ -172,7 +174,7 @@ describe("トークン交換", () => {
 describe("トークン更新", () => {
   it("refresh_token グラントで更新する", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ access_token: "new", expires_in: 3600 }));
-    const token = await refreshAccessToken(config, "rt", fetchImpl as unknown as typeof fetch);
+    const token = await refreshAccessToken(oauthConfig, "rt", fetchImpl as unknown as typeof fetch);
 
     const body = new URLSearchParams((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(body.get("grant_type")).toBe("refresh_token");
@@ -184,13 +186,13 @@ describe("トークン更新", () => {
 
   it("新しい refresh_token が返ればそれを使う", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ access_token: "new", refresh_token: "rt2" }));
-    const token = await refreshAccessToken(config, "rt", fetchImpl as unknown as typeof fetch);
+    const token = await refreshAccessToken(oauthConfig, "rt", fetchImpl as unknown as typeof fetch);
     expect(token.refreshToken).toBe("rt2");
   });
 
   it("更新に失敗したら再ログインを促す", async () => {
     const fetchImpl = vi.fn(async () => new Response("invalid_grant", { status: 400 }));
-    const error = await refreshAccessToken(config, "rt", fetchImpl as unknown as typeof fetch).catch(
+    const error = await refreshAccessToken(oauthConfig, "rt", fetchImpl as unknown as typeof fetch).catch(
       (e: unknown) => e,
     );
     expect(error).toBeInstanceOf(ReauthRequiredError);

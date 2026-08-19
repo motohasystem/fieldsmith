@@ -139,9 +139,12 @@ describe("同じ AppSpec からは同じものが出る", () => {
 
 const config = {
   baseUrl: BASE_URL,
-  clientId: "c",
-  clientSecret: "s",
-  redirectUri: "https://app.example.com/cb",
-  authorizationEndpoint: `${BASE_URL}/oauth2/authorization`,
-  tokenEndpoint: `${BASE_URL}/oauth2/token`,
+  auth: {
+    kind: "oauth" as const,
+    clientId: "c",
+    clientSecret: "s",
+    redirectUri: "https://app.example.com/cb",
+    authorizationEndpoint: `${BASE_URL}/oauth2/authorization`,
+    tokenEndpoint: `${BASE_URL}/oauth2/token`,
+  },
 };
