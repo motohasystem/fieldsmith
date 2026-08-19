@@ -1,10 +1,27 @@
 {
   "name": "vibecraft-kintone",
   "version": "0.1.0",
-  "description": "プロンプトから kintone アプリを生成してデプロイする CLI",
+  "description": "AppSpec (JSON) から kintone アプリを何度でも作る CLI。AppSpec は要件の文章からも作れる",
+  "keywords": [
+    "kintone",
+    "cli",
+    "codegen",
+    "claude",
+    "anthropic",
+    "infrastructure-as-code"
+  ],
+  "homepage": "https://github.com/motohasystem/vibecraft-kintone#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/motohasystem/vibecraft-kintone.git"
+  },
+  "bugs": {
+    "url": "https://github.com/motohasystem/vibecraft-kintone/issues"
+  },
   "type": "module",
   "bin": {
-    "vck": "./dist/cli/index.js"
+    "vck": "./dist/cli/index.js",
+    "vibecraft-kintone": "./dist/cli/index.js"
   },
   "files": [
     "dist",
@@ -19,7 +36,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "vck": "tsx src/cli/index.ts",
-    "e2e:manual": "tsx scripts/e2e-manual.ts"
+    "e2e:manual": "tsx scripts/e2e-manual.ts",
+    "prepublishOnly": "npm run build",
+    "prepare": "npm run build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
