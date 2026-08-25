@@ -576,10 +576,19 @@ fieldsmith revise 761 "受注確度を S/A/B/C の4段階にして、失注理�
 Claude Code から使う場合の設定と注意点は **[docs/claude-code.md](docs/claude-code.md)** にまとめてある
 （`CLAUDE.md` と `.claude/settings.json` の雛形つき）。
 
-手順そのものをエージェントに持たせるなら **[skills/kintone-appspec](skills/kintone-appspec)** を
-プロジェクトの `.claude/skills/` にコピーする。新規作成（`deploy`）と既存アプリの更新
-（`pull` → `diff` → `update`）の進め方、確認を取るタイミング、よくある失敗の直し方が入っている。
-インストールは不要（`npx -y fieldsmith` に落ちる）。
+手順そのものをエージェントに持たせるなら **[skills/kintone-appspec](skills/kintone-appspec)** を使う。
+新規作成（`deploy`）と既存アプリの更新（`pull` → `diff` → `update`）の進め方、確認を取る
+タイミング、よくある失敗の直し方が入っている。fieldsmith 自体のインストールは不要
+（`npx -y fieldsmith` に落ちる）。
+
+このリポジトリは Claude Code のプラグイン marketplace を兼ねているので、2 コマンドで入る。
+
+```bash
+claude plugin marketplace add motohasystem/fieldsmith
+claude plugin install kintone-fieldsmith@fieldsmith
+```
+
+ファイルをコピーして使ってもよい。詳細は [skills/README.md](skills/README.md)。
 
 エージェントの仕事は **AppSpec を書くこと**で、デプロイはシェルコマンド 1 つ。
 そのために必要なものは揃えてある。

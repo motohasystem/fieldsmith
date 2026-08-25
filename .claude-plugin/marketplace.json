@@ -1,0 +1,21 @@
+{
+  "name": "fieldsmith",
+  "description": "Marketplace hosting the kintone-appspec skill for fieldsmith",
+  "owner": {
+    "name": "Daisuke Motohashi"
+  },
+  "plugins": [
+    {
+      "name": "kintone-fieldsmith",
+      "description": "Author, validate, deploy and update kintone apps from an AppSpec (JSON) with the fieldsmith CLI. Offline validation, read-only diffs, and explicit confirmation before anything reaches production.",
+      "version": "0.1.0",
+      "source": "./",
+      "author": {
+        "name": "Daisuke Motohashi"
+      },
+      "homepage": "https://github.com/motohasystem/fieldsmith",
+      "license": "MIT",
+      "keywords": ["kintone", "appspec", "fieldsmith", "cli", "skills"]
+    }
+  ]
+}
