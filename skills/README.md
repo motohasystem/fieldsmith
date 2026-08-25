@@ -13,6 +13,24 @@ that document explains *why* an agent should write the AppSpec itself instead of
 
 ## Install
 
+### As a plugin (recommended)
+
+This repository doubles as a Claude Code plugin marketplace, so two commands are enough:
+
+```bash
+claude plugin marketplace add motohasystem/fieldsmith
+claude plugin install kintone-fieldsmith@fieldsmith
+```
+
+Restart the session to load it. `/plugin` inside Claude Code does the same thing through an
+interactive menu. Later updates are `claude plugin update kintone-fieldsmith`.
+
+The plugin is named `kintone-fieldsmith`; the skill it ships is `kintone-appspec`. Verify what
+was installed with `claude plugin details kintone-fieldsmith`, which also reports the token
+cost it adds to every session (~360 tokens always-on).
+
+### By copying the files
+
 Skills are plain files. Copy the directory into your project (or your home config) and the
 agent will pick it up:
 
