@@ -5,6 +5,10 @@ Claude Code に kintone アプリを作らせるときの設定と使い方。
 このページの `CLAUDE.md` と `.claude/settings.json` は、**fieldsmith を使う側のプロジェクト**に
 置くもの（fieldsmith 自体のリポジトリではない）。
 
+> **手順を丸ごと渡したいなら [skills/kintone-appspec](../skills/kintone-appspec) を使う。**
+> このページは「なぜそうするか」を説明するもの、スキルは「実際にどう進めるか」の手順書。
+> `.claude/skills/` にコピーすれば、下の `CLAUDE.md` に書くような約束事はスキル側が持つ。
+
 ---
 
 ## いちばん大事なこと: `plan` / `revise` は使わない
