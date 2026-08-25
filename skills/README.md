@@ -60,6 +60,51 @@ searching, in order:
 OAuth tokens live in `~/.config/fieldsmith/tokens.json` and are not affected by the working
 directory.
 
+Prefer **password auth** for agent use. OAuth needs an interactive `fieldsmith login` in a
+browser, which stalls the agent mid-task.
+
+## Permissions
+
+Optional, but worth setting: let the read-only commands through and confirm the ones that
+change kintone. Put this in `.claude/settings.json`.
+
+Permission patterns match **the command string as it is actually run**. The skill invokes the
+wrapper, not `fieldsmith` directly, so patterns written against `npx fieldsmith ...` will not
+match anything — including a `deny` you were relying on.
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash *kintone-appspec/scripts/fieldsmith.sh schema*)",
+      "Bash(bash *kintone-appspec/scripts/fieldsmith.sh pull *)",
+      "Bash(bash *kintone-appspec/scripts/fieldsmith.sh diff *)",
+      "Bash(bash *kintone-appspec/scripts/fieldsmith.sh status *)"
+    ],
+    "ask": [
+      "Bash(bash *kintone-appspec/scripts/fieldsmith.sh deploy *)",
+      "Bash(bash *kintone-appspec/scripts/fieldsmith.sh update *)"
+    ],
+    "deny": [
+      "Bash(bash *kintone-appspec/scripts/fieldsmith.sh plan *)",
+      "Bash(bash *kintone-appspec/scripts/fieldsmith.sh create *)",
+      "Bash(bash *kintone-appspec/scripts/fieldsmith.sh revise *)"
+    ]
+  }
+}
+```
+
+Rules are evaluated `deny` → `ask` → `allow`, first match wins. `deploy --dry-run` also matches
+`deploy *` in `ask`, so it prompts — harmless, and erring toward a prompt is the safe side.
+
+**Simpler alternative:** install the CLI globally (`npm i -g fieldsmith`). The wrapper prefers a
+`fieldsmith` on `PATH`, but it still runs as `bash .../fieldsmith.sh <args>`, so the patterns
+above are what you want either way. Only if you skip the wrapper entirely and let the agent call
+`fieldsmith` directly do plain `Bash(fieldsmith deploy *)` patterns apply.
+
+Whatever you write, verify it with `/permissions` in Claude Code rather than assuming — a rule
+that silently matches nothing looks exactly like a rule that works.
+
 ## Safety properties the skill relies on
 
 These are what make it reasonable to let an agent run the CLI at all:

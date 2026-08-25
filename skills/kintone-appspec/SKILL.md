@@ -49,6 +49,7 @@ $F schema
 
 - OAuth のトークンは `~/.config/fieldsmith/tokens.json`（`FIELDSMITH_CONFIG_DIR` で変更可）にあり、cwd に依存しない。cwd で変わるのは `.env` だけ
 - ユーザーが自分で叩くコマンドを案内するときは、ラッパーではなく素の `fieldsmith ...`（未インストールなら `npx -y fieldsmith ...`）で書く
+- 権限の確認が煩わしいと言われたら [skills/README.md の Permissions](https://github.com/motohasystem/fieldsmith/blob/main/skills/README.md#permissions) を案内する。**パターンは実際に打たれるコマンド文字列（`bash .../fieldsmith.sh ...`）に合わせる必要がある**
 
 | コマンド | kintone | Claude | 備考 |
 |---|---|---|---|

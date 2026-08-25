@@ -200,6 +200,13 @@ npx fieldsmith update <appId> kintone/<アプリ名>.json    # 動作テスト�
 
 **読み取りだけのコマンドは確認なしで通し、kintone を変えるコマンドは毎回確認する。**
 
+> **パターンは「実際に打たれるコマンド文字列」に合わせること。**
+> 下の雛形は `npx fieldsmith ...` で呼ぶ前提。[skills/kintone-appspec](../skills/kintone-appspec)
+> を使う場合はラッパー（`bash <skill_dir>/scripts/fieldsmith.sh ...`）が呼ばれるので、
+> この雛形はどれにもマッチしない。**`deny` に入れたつもりの `plan` / `create` / `revise` も
+> 素通りする。** スキルを使うときの書き方は
+> [skills/README.md の Permissions](../skills/README.md#permissions) を見る。
+
 ```json
 {
   "permissions": {
