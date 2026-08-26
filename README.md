@@ -57,6 +57,30 @@ fieldsmith plan -f requirements.md -o bookshelf.json
 これは「テンプレートから量産する」用途に向く。
 既存アプリに変更を反映したい場合は `update` を使う。
 
+## 先達について
+
+このツールの発想は、**[ginue](https://github.com/goqoo-on-kintone/ginue)**（[goqoo-on-kintone](https://github.com/goqoo-on-kintone)、MIT）に多くを負っている。
+
+ginue は kintone のアプリ設定を JSON として取り出し、Git のワークフローで扱う CLI。
+fieldsmith が受け継いだのは、道具立てそのものと言っていい。
+
+| | ginue | fieldsmith |
+|---|---|---|
+| 設定を取り出す | `pull` | `pull` |
+| 動作テスト環境へ反映 | `push` | `update` |
+| 運用環境へ反映 | `deploy` | `update --deploy` |
+| 送信前に確認 | `--dry-run` | `--dry-run` |
+
+**「アプリ設定はファイルにして版管理できる」「動作テスト環境で止めて人が確認してから本番へ出す」**
+という考え方は、ginue が先に示したものをそのまま踏襲している。
+fieldsmith の `update` が既定で運用環境に出ないのも、この 2 段階を守るためで、
+ginue の `push` と `deploy` の分け方に倣った。
+
+違いは抽象度にある。ginue は kintone の設定 JSON をそのまま扱い、
+多くの設定を高い忠実度で往復させる。fieldsmith は `AppSpec` という一段抽象化した形を挟み、
+表現できる範囲を狭める代わりに、人にも LLM にも書きやすくしている。
+テーブルやルックアップを扱えないのはそのためで、**忠実に環境を移したいなら ginue のほうが適している。**
+
 ## サンプル
 
 そのまま `deploy` できる AppSpec の実例が [examples/](examples/) にある。
@@ -897,3 +921,8 @@ MIT License（[LICENSE](LICENSE)）
 
 同梱している日本語フォント **DotGothic16** は SIL Open Font License 1.1 です。
 ライセンス全文は [assets/fonts/OFL.txt](assets/fonts/OFL.txt) に同梱しています。
+
+## 謝辞
+
+設計の下敷きにさせてもらった [ginue](https://github.com/goqoo-on-kintone/ginue) の作者と
+メンテナの方々に感謝します。詳しくは [先達について](#先達について)。
