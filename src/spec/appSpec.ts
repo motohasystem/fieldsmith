@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DEFAULT_MAX_PER_ROW } from "./layout.js";
+import { DEFAULT_MAX_PER_ROW, sectionCodeOf } from "./layout.js";
 import {
   deriveFieldCode,
   fieldSpecSchema,
@@ -92,14 +92,16 @@ const appSpecObjectSchema = z
     /**
      * フォームの並べ方。
      * `grouped` (既定) は、似た系統のフィールドを横に並べる。
+     * `sections` は、それに加えて同じ `group` のフィールドを
+     * kintone のグループフィールドにまとめる。
      * `stacked` はレイアウトに手を加えず、1 行 1 フィールドのままにする。
      */
     layout: z
       .union([
-        z.enum(["grouped", "stacked"]),
+        z.enum(["grouped", "stacked", "sections"]),
         z
           .object({
-            mode: z.enum(["grouped", "stacked"]).default("grouped"),
+            mode: z.enum(["grouped", "stacked", "sections"]).default("grouped"),
             /** 1 行に並べる上限。 */
             maxPerRow: z.number().int().min(1).max(4).default(DEFAULT_MAX_PER_ROW),
           })
@@ -220,6 +222,44 @@ export const appSpecSchema = appSpecObjectSchema.superRefine((spec, ctx) => {
     previousGroup = group;
   });
 
+  // sections では group がそのままグループフィールドのコードになるので、
+  // フィールドコードと同じ規約を満たしているかをここで見る。
+  if (layoutModeOf(spec.layout) === "sections") {
+    const sectionCodes = new Map<string, string>();
+    spec.fields.forEach((field, index) => {
+      const group = field.group;
+      if (group === undefined) return;
+
+      const sectionCode = sectionCodeOf(group);
+      const addIssue = (message: string): void => {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fields", index, "group"], message });
+      };
+
+      const existing = sectionCodes.get(sectionCode);
+      if (existing !== undefined) {
+        if (existing !== group) {
+          addIssue(
+            `group "${group}" と "${existing}" は同じグループのフィールドコード` +
+              ` "${sectionCode}" になります。どちらかを変えてください。`,
+          );
+        }
+        return;
+      }
+      sectionCodes.set(sectionCode, group);
+
+      const issue = validateFieldCode(sectionCode);
+      if (issue) {
+        addIssue(`group から導出したフィールドコード "${sectionCode}" が不正です: ${issue.reason}`);
+        return;
+      }
+      if (codes.has(sectionCode)) {
+        addIssue(
+          `group "${group}" のグループフィールドが、フィールドコード "${sectionCode}" と重複します`,
+        );
+      }
+    });
+  }
+
   const viewNames = new Set<string>();
   spec.views?.forEach((view, index) => {
     if (viewNames.has(view.name)) {
@@ -318,12 +358,35 @@ export function fieldGroups(spec: AppSpec): Record<string, string> {
   return groups;
 }
 
+/** フォームの並べ方。 */
+export type LayoutMode = "grouped" | "stacked" | "sections";
+
 /** layout の指定を、扱いやすい形に正規化する。 */
-export function resolveLayout(spec: AppSpec): { mode: "grouped" | "stacked"; maxPerRow: number } {
+export function resolveLayout(spec: AppSpec): { mode: LayoutMode; maxPerRow: number } {
   const layout = spec.layout;
   if (layout === undefined) return { mode: "grouped", maxPerRow: DEFAULT_MAX_PER_ROW };
   if (typeof layout === "string") return { mode: layout, maxPerRow: DEFAULT_MAX_PER_ROW };
   return { mode: layout.mode, maxPerRow: layout.maxPerRow };
+}
+
+/** 検証の途中 (AppSpec になる前) に layout の指定だけを読む。 */
+function layoutModeOf(layout: AppSpec["layout"]): LayoutMode {
+  if (layout === undefined) return "grouped";
+  return typeof layout === "string" ? layout : layout.mode;
+}
+
+/** レイアウトを fieldsmith が組み立てるか (stacked は既存の並びに触れない)。 */
+export function appliesLayout(mode: LayoutMode): boolean {
+  return mode === "grouped" || mode === "sections";
+}
+
+/** AppSpec に現れるセクション名を、書かれた順に返す。 */
+export function sectionNames(spec: AppSpec): string[] {
+  const names: string[] = [];
+  for (const field of spec.fields) {
+    if (field.group !== undefined && !names.includes(field.group)) names.push(field.group);
+  }
+  return names;
 }
 
 /**

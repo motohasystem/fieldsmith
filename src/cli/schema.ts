@@ -39,7 +39,8 @@ export function appSpecReference(): string {
   lines.push("| `thread` | | スペース内のスレッド ID |");
   lines.push("| `guestSpaceId` | | ゲストスペース ID |");
   lines.push(
-    `| \`layout\` | | \`"grouped"\` (既定) / \`"stacked"\` / \`{ "mode": "grouped", "maxPerRow": ${DEFAULT_MAX_PER_ROW} }\` |`,
+    `| \`layout\` | | \`"grouped"\` (既定) / \`"sections"\` / \`"stacked"\` /` +
+      ` \`{ "mode": "grouped", "maxPerRow": ${DEFAULT_MAX_PER_ROW} }\` |`,
   );
   lines.push("| `views` | | 一覧の配列 |");
   lines.push("| `settings` | | 一般設定 |");
@@ -52,6 +53,17 @@ export function appSpecReference(): string {
   lines.push("- `code` を省略すると `label` から自動で導出される");
   lines.push("- `group` は意味のまとまりの名前。同じ `group` のフィールドは横に並ぶので、");
   lines.push("  **続けて並べること**（離れていると検証で弾かれる）");
+  lines.push("");
+  lines.push("### layout の 3 つの指定");
+  lines.push("");
+  lines.push("| 指定 | 動き |");
+  lines.push("|---|---|");
+  lines.push("| `grouped` (既定) | 同じ `group` のフィールドを横に並べる。kintone 上にまとまりは現れない |");
+  lines.push("| `sections` | 同じ `group` のフィールドを **kintone のグループフィールド**に入れる |");
+  lines.push("| `stacked` | 並びに手を触れない。既存アプリの更新で、いまの配置を守りたいときに使う |");
+  lines.push("");
+  lines.push("`sections` では `group` の名前がグループのフィールドコードになるので、");
+  lines.push("フィールドコードと重ならない名前にする（重なると検証で弾かれる）。");
   lines.push("");
   lines.push("| 型 | 固有のキー |");
   lines.push("|---|---|");

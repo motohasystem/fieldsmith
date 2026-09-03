@@ -43,7 +43,12 @@ import {
   type AppSpec,
 } from "../spec/appSpec.js";
 import { describeDiff, diffAppSpec, isEmptyDiff } from "../spec/diff.js";
-import { describeRows, groupIntoRows } from "../spec/layout.js";
+import {
+  buildSectionedRows,
+  describeLayout,
+  describeRows,
+  groupIntoRows,
+} from "../spec/layout.js";
 import { toKintonePayloads } from "../spec/toKintone.js";
 import { backgroundFor, renderIcon } from "../icon/render.js";
 import { EXIT_HINT } from "./exit.js";
@@ -545,6 +550,30 @@ program
     });
   });
 
+/**
+ * `--dry-run` で見せるフォームの並び。
+ *
+ * 実際のレイアウトは、kintone がフィールドを置いた結果を起点に組み直すので
+ * ここでは分からない。ただし並べ替えの規則は AppSpec だけで決まるため、
+ * 出来上がりの形はここで示せる。
+ */
+function previewLayout(spec: AppSpec): string[] {
+  const { mode, maxPerRow } = resolveLayout(spec);
+  if (mode === "stacked") return [];
+
+  const fields = spec.fields.map((field) => ({
+    type: field.type,
+    code: resolveFieldCode(field),
+  }));
+  const options = { maxPerRow, groups: fieldGroups(spec) };
+
+  return describeLayout(
+    mode === "sections"
+      ? buildSectionedRows(fields, options)
+      : groupIntoRows(fields, options).map((row) => ({ type: "ROW" as const, fields: row })),
+  );
+}
+
 interface DeployCommandOptions {
   readonly dryRun?: boolean;
   readonly space?: string;
@@ -569,6 +598,11 @@ async function deployWithOptions(spec: AppSpec, options: DeployCommandOptions): 
       );
     }
     say(JSON.stringify(payloads, null, 2));
+    const layout = previewLayout(spec);
+    if (layout.length > 0) {
+      say("\nフォームの並び (実際の配置は kintone が置いた結果を起点に組み直す):\n");
+      say(layout.join("\n"));
+    }
     emitSuccess({ command: "deploy", dryRun: true, appName: spec.name, payloads });
     return;
   }

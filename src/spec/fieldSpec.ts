@@ -49,7 +49,10 @@ export const UNADDABLE_FIELD_TYPES: Record<string, string> = {
   UPDATED_TIME: "アプリ作成時に自動生成されるフィールドのため、追加できません",
   SUBTABLE: "テーブルは v1 では未対応です",
   REFERENCE_TABLE: "関連レコード一覧は v1 では未対応です",
-  GROUP: "グループ (フィールドのグループ化) は v1 では未対応です",
+  // グループは fields に書くものではなく、layout: "sections" と field.group から
+  // fieldsmith が組み立てる。中に何が入るかはレイアウトの話なので、
+  // フィールドの列挙とは別の場所で表現したほうが読みやすい。
+  GROUP: 'グループは fields に書かず、layout: "sections" と各フィールドの group で指定してください',
   LOOKUP: "ルックアップは v1 では未対応です",
 };
 
@@ -144,10 +147,15 @@ const baseFieldShape = {
   noLabel: z.boolean().optional(),
   /**
    * 意味のまとまりの名前 (「書誌情報」「貸出」など)。
-   * フォームのレイアウトで、同じ名前のフィールドを横に並べるのに使う。
-   * kintone には送らない、fieldsmith の中だけの情報。
+   *
+   * `layout` の指定で扱いが変わる。
+   *   - `grouped`  : 同じ名前のフィールドを横に並べる (kintone には送らない)
+   *   - `sections` : 同じ名前のフィールドを 1 つの**グループフィールド**に入れる
+   *
+   * `sections` ではこの名前がグループのフィールドコードの元になるため、
+   * 上限はフィールドコードに合わせる。
    */
-  group: z.string().min(1).max(32).optional(),
+  group: z.string().min(1).max(128).optional(),
 };
 
 const optionsSchema = z

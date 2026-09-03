@@ -7,20 +7,24 @@ import {
   ORPHAN_GROUP_CODE,
   ORPHAN_GROUP_LABEL,
   regroupLayout,
+  sectionCodeOf,
   type LayoutRow,
 } from "../spec/layout.js";
 import { diffAppSpec, isEmptyDiff, type AppDiff } from "../spec/diff.js";
 import {
+  appliesLayout,
   fieldGroups,
   parseAppSpec,
   resolveFieldCode,
   resolveLayout,
+  sectionNames,
   type AppSpec,
 } from "../spec/appSpec.js";
 import {
   toAppSettings,
   toFieldProperties,
   toKintonePayloads,
+  toSectionProperties,
   toViews,
   type KintoneFieldProperties,
 } from "../spec/toKintone.js";
@@ -151,7 +155,7 @@ export async function deployAppSpec(
     }
 
     const layout = resolveLayout(spec);
-    if (layout.mode === "grouped") {
+    if (appliesLayout(layout.mode)) {
       step = "updateLayout";
       report({ step: "updateLayout", message: "フォームの並びを整えています" });
 
@@ -165,6 +169,7 @@ export async function deployAppSpec(
         maxPerRow: layout.maxPerRow,
         // kintone のレイアウトには group が無いので、AppSpec 側の対応表を渡す。
         groups: fieldGroups(spec),
+        sections: layout.mode === "sections",
       });
 
       const result = await kintone.call((client) =>
@@ -420,6 +425,8 @@ export interface PulledApp {
   readonly hasOrphanGroup: boolean;
   /** 既に削除候補グループへ移してあるフィールド。もう一度動かさないために使う。 */
   readonly parkedCodes: readonly string[];
+  /** 既に在るグループフィールドのコード。二重に作らないために使う。 */
+  readonly groupCodes: readonly string[];
 }
 
 /**
@@ -480,6 +487,9 @@ export async function pullApp(
     appName: settings.name,
     hasOrphanGroup: Object.hasOwn(form.properties, ORPHAN_GROUP_CODE),
     parkedCodes: parkedFieldCodes(layout.layout as unknown as LayoutRow[]),
+    groupCodes: Object.entries(form.properties)
+      .filter(([, property]) => (property as { type?: string }).type === "GROUP")
+      .map(([code]) => code),
   };
 }
 
@@ -580,6 +590,23 @@ export async function updateApp(
     );
   }
 
+  // 目標から消えたセクション。中身は spec の並びに置き直すが、
+  // グループフィールド自体は削除しない (フィールドを消さないのと同じ理由)。
+  const warnings = [...pulled.warnings];
+  if (resolveLayout(desired).mode === "sections") {
+    const wanted = new Set(sectionNames(desired).map(sectionCodeOf));
+    const leftover = pulled.groupCodes.filter(
+      (code) => code !== ORPHAN_GROUP_CODE && !wanted.has(code),
+    );
+    if (leftover.length > 0) {
+      warnings.push(
+        `グループ「${leftover.join("」「")}」は AppSpec に無くなりました。` +
+          " 中身は spec の並びに置き直しますが、空のグループはフォームに残ります" +
+          " (不要なら kintone の画面で削除してください)。",
+      );
+    }
+  }
+
   // 既に削除候補へ移してあるものは、もう動かす必要がない。
   const parked = new Set(pulled.parkedCodes);
   const orphanCodes = diff.orphaned
@@ -603,7 +630,7 @@ export async function updateApp(
       diff,
       revision: "-1",
       deployed: false,
-      warnings: pulled.warnings,
+      warnings,
       pendingOrphans: [],
     };
   }
@@ -613,6 +640,14 @@ export async function updateApp(
 
   // 追加するフィールド。削除候補グループもフィールドなので、無ければここで作る。
   const additions = toFieldProperties(diff.added.map((entry) => entry.field));
+
+  // セクションもフィールドなので、レイアウトを書く前に作っておく必要がある。
+  // 同じ group からは毎回同じコードが出るので、既に在るものは作らない。
+  const existingGroups = new Set(pulled.groupCodes);
+  for (const [code, property] of Object.entries(toSectionProperties(desired))) {
+    if (!existingGroups.has(code)) additions[code] = property;
+  }
+
   if (needsOrphanGroup) {
     additions[ORPHAN_GROUP_CODE] = {
       type: "GROUP",
@@ -707,6 +742,7 @@ export async function updateApp(
         })),
         orphans: orphanCodes,
         regroup: diff.layout.willApply,
+        sections: resolveLayout(desired).mode === "sections",
         maxPerRow: resolveLayout(desired).maxPerRow,
         groups: fieldGroups(desired),
       });
@@ -734,7 +770,7 @@ export async function updateApp(
       diff,
       revision,
       deployed: false,
-      warnings: pulled.warnings,
+      warnings,
       pendingOrphans: orphanCodes,
     };
   }
@@ -751,7 +787,7 @@ export async function updateApp(
     diff,
     revision,
     deployed: true,
-    warnings: pulled.warnings,
+    warnings,
     pendingOrphans: orphanCodes,
   };
 }
