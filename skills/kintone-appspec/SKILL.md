@@ -268,10 +268,13 @@ AppSpec は kintone の設定を全部は表現できない。`pull` は落と�
 | エラー | 直し方 |
 |---|---|
 | `STATUS` / `ASSIGNEE` / `CATEGORY`: プロセス管理の設定で追加される… | フィールド追加 API では作れない。`DROP_DOWN` か `RADIO_BUTTON` で代用 |
-| `LOOKUP` / `SUBTABLE` / `REFERENCE_TABLE` / `GROUP`: v1 では未対応 | 別のフィールドで表現し直す。「今は作れないので手で足す必要がある」と伝える |
+| `LOOKUP` / `SUBTABLE` / `REFERENCE_TABLE`: v1 では未対応 | 別のフィールドで表現し直す。「今は作れないので手で足す必要がある」と伝える |
+| `GROUP: グループは fields に書かず、layout: "sections" と各フィールドの group で指定してください` | `fields` からその行を消し、まとめたいフィールドに同じ `group` を付けて `"layout": "sections"` にする |
 | `RECORD_NUMBER` / `CREATOR` / `CREATED_TIME` …: 自動生成される | `fields` から消す。`views.fields` には書ける |
 | `defaultValue "中" が options に含まれていません` | `options` に足すか `defaultValue` を直す。`RADIO_BUTTON`/`DROP_DOWN` は文字列、`CHECK_BOX`/`MULTI_SELECT` は配列 |
 | `group "◯◯" のフィールドが離れて書かれています` | 同じ group を連続させる。並べ替えたくないなら片方の group 名を変える |
+| `group "◯◯" のグループフィールドが、フィールドコード "◯◯" と重複します`（sections） | group の名前はグループのフィールドコードになる。フィールドと同じ名前を避ける |
+| `group "◯◯" と "△△" は同じグループのフィールドコード "□□" になります`（sections） | 記号は `_` に潰されるので別々の名前が衝突しうる。どちらかを変える |
 | `フィールドコード "◯◯" は fields に存在しません` | `views.fields` / `settings.titleFieldCode` の綴りを直す。`code` 省略時は `label` から導出される点に注意 |
 | `フィールドコードの先頭に数字は使用できません` / 使用できない文字 | `code` を明示する。`( ) / \ - = + * < > % 空白` などは使えない。日本語は使える |
 | `kintone は作成後のフィールド型を変更できないため…`（update） | 別の `code` で新フィールドを作り、古い方を AppSpec から外す。**データは移らない**と伝えて確認を取る |
