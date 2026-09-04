@@ -1,11 +1,14 @@
 import {
   BUILT_IN_FIELD_CODES,
   resolveFieldCode,
+  resolveLayout,
+  sectionNames,
   type AppSpec,
   type GeneralSettings,
   type ViewSpec,
 } from "./appSpec.js";
 import { isOptionFieldType, type FieldSpec } from "./fieldSpec.js";
+import { sectionCodeOf } from "./layout.js";
 
 /** kintone のフィールド追加 API に渡す properties。 */
 export type KintoneFieldProperties = Record<string, Record<string, unknown>>;
@@ -27,7 +30,8 @@ export interface KintonePayloads {
 export function toKintonePayloads(spec: AppSpec): KintonePayloads {
   return {
     appName: spec.name,
-    properties: toFieldProperties(spec.fields),
+    // グループフィールドも「追加するフィールド」なので、同じ properties に混ぜて送る。
+    properties: { ...toFieldProperties(spec.fields), ...toSectionProperties(spec) },
     settings: toAppSettings(spec),
     views: spec.views === undefined ? null : toViews(spec.views),
   };
@@ -42,6 +46,23 @@ export function toFieldProperties(fields: readonly FieldSpec[]): KintoneFieldPro
   for (const field of fields) {
     const code = resolveFieldCode(field);
     properties[code] = toFieldProperty(field, code);
+  }
+  return properties;
+}
+
+/**
+ * セクション (group) を kintone のグループフィールドに変換する。
+ *
+ * `sections` 以外の指定では、group はレイアウトのヒントでしかないので何も作らない。
+ * グループは既定で開いた状態にする (`_削除候補` だけが畳んだ状態)。
+ */
+export function toSectionProperties(spec: AppSpec): KintoneFieldProperties {
+  if (resolveLayout(spec).mode !== "sections") return {};
+
+  const properties: KintoneFieldProperties = {};
+  for (const name of sectionNames(spec)) {
+    const code = sectionCodeOf(name);
+    properties[code] = { type: "GROUP", code, label: name, noLabel: false, openGroup: true };
   }
   return properties;
 }
