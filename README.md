@@ -253,9 +253,12 @@ npm run fieldsmith -- login
 
 ### ルックアップを対象外にしている理由
 
-`LOOKUP` は `SUBTABLE` / `REFERENCE_TABLE` / `GROUP` と並べて「v1 では未対応」としているが、
+`LOOKUP` は `SUBTABLE` / `REFERENCE_TABLE` と並べて「v1 では未対応」としているが、
 外している理由が他とは違う。ほかがアプリ内で完結する構造物なのに対し、**ルックアップだけは
 他のアプリに依存する**。
+
+（グループも当初は同じ扱いだったが、[`layout: "sections"`](#グループフィールド-sections) で
+対応した。アプリ内で完結する構造物なので、ルックアップとは事情が違う。）
 
 **1. AppSpec を環境非依存に保つため（主たる理由）**
 
