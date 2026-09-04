@@ -57,6 +57,30 @@ fieldsmith plan -f requirements.md -o bookshelf.json
 これは「テンプレートから量産する」用途に向く。
 既存アプリに変更を反映したい場合は `update` を使う。
 
+## 先達について
+
+このツールの発想は、**[ginue](https://github.com/goqoo-on-kintone/ginue)**（[goqoo-on-kintone](https://github.com/goqoo-on-kintone)、MIT）に多くを負っている。
+
+ginue は kintone のアプリ設定を JSON として取り出し、Git のワークフローで扱う CLI。
+fieldsmith が受け継いだのは、道具立てそのものと言っていい。
+
+| | ginue | fieldsmith |
+|---|---|---|
+| 設定を取り出す | `pull` | `pull` |
+| 動作テスト環境へ反映 | `push` | `update` |
+| 運用環境へ反映 | `deploy` | `update --deploy` |
+| 送信前に確認 | `--dry-run` | `--dry-run` |
+
+**「アプリ設定はファイルにして版管理できる」「動作テスト環境で止めて人が確認してから本番へ出す」**
+という考え方は、ginue が先に示したものをそのまま踏襲している。
+fieldsmith の `update` が既定で運用環境に出ないのも、この 2 段階を守るためで、
+ginue の `push` と `deploy` の分け方に倣った。
+
+違いは抽象度にある。ginue は kintone の設定 JSON をそのまま扱い、
+多くの設定を高い忠実度で往復させる。fieldsmith は `AppSpec` という一段抽象化した形を挟み、
+表現できる範囲を狭める代わりに、人にも LLM にも書きやすくしている。
+テーブルやルックアップを扱えないのはそのためで、**忠実に環境を移したいなら ginue のほうが適している。**
+
 ## サンプル
 
 そのまま `deploy` できる AppSpec の実例が [examples/](examples/) にある。
@@ -226,6 +250,37 @@ npm run fieldsmith -- login
 - `STATUS` / `ASSIGNEE` / `CATEGORY` などフィールド追加 API で追加できない型は、
   **kintone に 1 リクエストも投げる前に**理由付きで弾く。
 - 一覧や `titleFieldCode` から参照するフィールドコードの存在も、事前に検証する。
+
+### ルックアップを対象外にしている理由
+
+`LOOKUP` は `SUBTABLE` / `REFERENCE_TABLE` / `GROUP` と並べて「v1 では未対応」としているが、
+外している理由が他とは違う。ほかがアプリ内で完結する構造物なのに対し、**ルックアップだけは
+他のアプリに依存する**。
+
+**1. AppSpec を環境非依存に保つため（主たる理由）**
+
+ルックアップの設定には**相手アプリの ID** が要る。これを spec に書くと、その AppSpec は
+特定の kintone 環境でしか使えなくなる。`space` を `examples/` の spec に持たせていないのと
+同じ理由で、「同じ spec を別の環境・別のスペースにもう 1 つ」ができなくなるのは困る。
+
+アプリ間の参照は **AppSpec の外に置き、kintone 上で人が繋ぐ**という前提にしている。
+`examples/` がその形になっている。
+
+| ファイル | どう扱っているか |
+|---|---|
+| `本棚.json` | 「蔵書アプリはこのアプリの棚 ID をキーにルックアップで引く」と `description` に**文章で**書く |
+| `蔵書.json` / `蔵書管理.json` | `本棚ID` を**ただの文字列フィールド**として持つ |
+
+**2. `deploy` の決定性が保てないため**
+
+`deploy` は「AppSpec 1 つ → 新しいアプリ 1 つ」を毎回同じ結果で作る操作。ルックアップを
+認めると、相手アプリが先に存在している必要があり、アプリ間の依存解決と作成順序という
+別の問題が入り込む。
+
+さらに `--dry-run` は kintone に接続しないので、**相手アプリやキーフィールドの存在を
+検証できない**。「検証は通ったのにデプロイの途中で落ちる」型の失敗が増える。
+
+`pull` は既存アプリのルックアップを黙って捨てず、警告に残す。
 
 ## スペースへの配置
 
@@ -912,3 +967,8 @@ MIT License（[LICENSE](LICENSE)）
 
 同梱している日本語フォント **DotGothic16** は SIL Open Font License 1.1 です。
 ライセンス全文は [assets/fonts/OFL.txt](assets/fonts/OFL.txt) に同梱しています。
+
+## 謝辞
+
+設計の下敷きにさせてもらった [ginue](https://github.com/goqoo-on-kintone/ginue) の作者と
+メンテナの方々に感謝します。詳しくは [先達について](#先達について)。
