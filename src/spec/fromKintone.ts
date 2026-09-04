@@ -1,4 +1,5 @@
-import { SUPPORTED_FIELD_TYPES, type SupportedFieldType } from "./fieldSpec.js";
+import { deriveFieldCode, SUPPORTED_FIELD_TYPES, type SupportedFieldType } from "./fieldSpec.js";
+import { ORPHAN_GROUP_CODE } from "./layout.js";
 
 /**
  * kintone から取得したアプリ設定を AppSpec に戻す。
@@ -36,6 +37,13 @@ const AUTO_FIELD_TYPES = new Set([
 
 const SUPPORTED = new Set<string>(SUPPORTED_FIELD_TYPES);
 
+/**
+ * グループはフィールドとしては書き出さない。
+ * `layout: "sections"` と各フィールドの `group` として表現するので、
+ * 「表現できなかった」わけではない。警告も出さない。
+ */
+const LAYOUT_FIELD_TYPES = new Set(["GROUP"]);
+
 export interface PullInput {
   readonly name: string;
   /** getAppSettings の icon。画像アイコンは AppSpec に戻せないため警告に使う。 */
@@ -53,11 +61,13 @@ export interface PullInput {
 export function toAppSpecFromKintone(input: PullInput): PulledSpec {
   const warnings: string[] = [];
   const order = fieldOrderFromLayout(input.layout ?? []);
+  const sections = sectionsFromLayout(input.layout ?? [], input.properties);
 
   const entries = Object.entries(input.properties)
     .filter(([, property]) => {
       const type = String(property["type"]);
       if (AUTO_FIELD_TYPES.has(type)) return false;
+      if (LAYOUT_FIELD_TYPES.has(type)) return false;
       if (!SUPPORTED.has(type)) {
         warnings.push(
           `フィールド「${property["label"] ?? property["code"]}」(${type}) は AppSpec で表現できないため除きました。` +
@@ -76,9 +86,20 @@ export function toAppSpecFromKintone(input: PullInput): PulledSpec {
 
   const spec: Record<string, unknown> = {
     name: input.name,
-    // レイアウトは AppSpec では再現しきれないため、既存の並びには手を触れない。
-    layout: "stacked",
-    fields: entries.map(([, property]) => toFieldSpec(property)),
+    /*
+     * 横並びは読み取れない。1 行に 3 つ並んでいても、fieldsmith が並べたのか
+     * 人が画面で並べたのか区別が付かないので、`stacked` (既存の並びに触れない) と言う。
+     *
+     * グループは読み取れる。レイアウトに GROUP があれば、それは疑いなくセクションなので、
+     * `sections` と名乗って往復できるようにする。
+     */
+    layout: sections.size > 0 ? "sections" : "stacked",
+    fields: entries.map(([code, property]) => {
+      const field = toFieldSpec(property);
+      const section = sections.get(code);
+      if (section !== undefined) field["group"] = section;
+      return field;
+    }),
   };
 
   assign(spec, "description", input.description);
@@ -122,6 +143,54 @@ function fieldOrderFromLayout(layout: readonly Record<string, unknown>[]): Map<s
 
   walk(layout);
   return order;
+}
+
+/**
+ * レイアウトのグループを辿って、フィールドコード → セクション名を作る。
+ *
+ * セクション名は `group` に書く値なので、**そこからグループのフィールドコードに
+ * 戻せる**必要がある。ラベルから導出したコードが実物と一致するならラベルを使い、
+ * 一致しないならコードをそのまま名前にする (往復で別のグループを作らないため)。
+ */
+function sectionsFromLayout(
+  layout: readonly Record<string, unknown>[],
+  properties: KintoneProperties,
+): Map<string, string> {
+  const sections = new Map<string, string>();
+
+  for (const row of layout) {
+    if (row["type"] !== "GROUP") continue;
+    const code = String(row["code"] ?? "");
+    // 削除候補は fieldsmith の退避先であって、人が意図したセクションではない。
+    if (code === "" || code === ORPHAN_GROUP_CODE) continue;
+
+    const label = properties[code]?.["label"];
+    const name = typeof label === "string" && deriveFieldCode(label) === code ? label : code;
+
+    const nested = row["layout"];
+    if (!Array.isArray(nested)) continue;
+    for (const field of collectFieldCodes(nested as Record<string, unknown>[])) {
+      sections.set(field, name);
+    }
+  }
+
+  return sections;
+}
+
+/** 入れ子も含めて、行に載っているフィールドコードを集める。 */
+function collectFieldCodes(rows: readonly Record<string, unknown>[]): string[] {
+  const codes: string[] = [];
+  for (const row of rows) {
+    const fields = row["fields"];
+    if (Array.isArray(fields)) {
+      for (const field of fields as { code?: string }[]) {
+        if (typeof field.code === "string") codes.push(field.code);
+      }
+    }
+    const nested = row["layout"];
+    if (Array.isArray(nested)) codes.push(...collectFieldCodes(nested as Record<string, unknown>[]));
+  }
+  return codes;
 }
 
 function toFieldSpec(property: Record<string, unknown>): Record<string, unknown> {

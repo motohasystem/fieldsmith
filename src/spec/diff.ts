@@ -1,4 +1,11 @@
-import { fieldGroups, resolveFieldCode, resolveLayout, type AppSpec, type ViewSpec } from "./appSpec.js";
+import {
+  appliesLayout,
+  fieldGroups,
+  resolveFieldCode,
+  resolveLayout,
+  type AppSpec,
+  type ViewSpec,
+} from "./appSpec.js";
 import type { FieldSpec } from "./fieldSpec.js";
 
 /**
@@ -70,6 +77,14 @@ export interface LayoutDiff {
   readonly orderChanged: boolean;
   /** group の割り当てが変わったか。 */
   readonly groupsChanged: boolean;
+  /**
+   * フィールドの顔ぶれが変わったか (`sections` のときだけ見る)。
+   *
+   * 増えたフィールドは、レイアウトを書かないと kintone がフォーム末尾に置く。
+   * セクションを使っているときは**所属先の外**に出てしまうので、
+   * 顔ぶれが変わったこと自体を組み直す理由として扱う。
+   */
+  readonly membersChanged: boolean;
   /**
    * 実際にレイアウトを組み直すか。
    * 目標が `stacked` の場合は既存の並びに手を触れないので、変化があっても適用しない。
@@ -157,7 +172,7 @@ function compareLayout(current: AppSpec, desired: AppSpec): LayoutDiff {
   const desiredLayout = resolveLayout(desired);
 
   const describe = (layout: { mode: string; maxPerRow: number }): string =>
-    layout.mode === "grouped" ? `grouped (最大 ${layout.maxPerRow} 列)` : "stacked";
+    layout.mode === "stacked" ? "stacked" : `${layout.mode} (最大 ${layout.maxPerRow} 列)`;
 
   const currentCodes = current.fields.map(resolveFieldCode);
   const desiredCodes = desired.fields.map(resolveFieldCode);
@@ -174,14 +189,24 @@ function compareLayout(current: AppSpec, desired: AppSpec): LayoutDiff {
   const modeChanged =
     currentLayout.mode !== desiredLayout.mode || currentLayout.maxPerRow !== desiredLayout.maxPerRow;
 
+  // grouped は modeChanged が常に立つ (pull が stacked を返すため) ので、
+  // 顔ぶれの変化は結果的にいつも拾えている。sections は同じ指定どうしを比べるので、
+  // ここで明示しないと「足したフィールドがセクションの外に出る」ことになる。
+  const membersChanged =
+    desiredLayout.mode === "sections" &&
+    (currentCodes.length !== desiredCodes.length || shared.size !== desiredCodes.length);
+
   return {
     from: describe(currentLayout),
     to: describe(desiredLayout),
     modeChanged,
     orderChanged,
     groupsChanged,
+    membersChanged,
     // stacked は「既存の並びに手を触れない」指定なので、違いがあっても組み直さない。
-    willApply: desiredLayout.mode === "grouped" && (modeChanged || orderChanged || groupsChanged),
+    willApply:
+      appliesLayout(desiredLayout.mode) &&
+      (modeChanged || orderChanged || groupsChanged || membersChanged),
   };
 }
 
@@ -315,6 +340,7 @@ export function describeDiff(diff: AppDiff): string[] {
       diff.layout.modeChanged ? `指定: ${diff.layout.from} → ${diff.layout.to}` : null,
       diff.layout.orderChanged ? "並び順" : null,
       diff.layout.groupsChanged ? "group" : null,
+      diff.layout.membersChanged ? "フィールドの増減" : null,
     ].filter((reason): reason is string => reason !== null);
     lines.push(`  ~ フォームの並びを組み直す (${reasons.join(", ")})`);
   }

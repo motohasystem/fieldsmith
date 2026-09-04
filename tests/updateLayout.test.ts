@@ -102,6 +102,9 @@ describe("削除候補への退避", () => {
 describe("既にある削除候補グループ", () => {
   it("グループを増やさず、まとめて入れ直す", () => {
     // 毎回同じフィールドコードを使うので、更新を繰り返してもグループは 1 つ。
+    // 先に退避してあったものも、退避したまま入れ直す。orphans には
+    // 「今回あらたに退避するもの」しか来ないので、ここで拾わないと
+    // レイアウトから消えてしまう (レイアウト変更 API が失敗する)。
     const layout = buildUpdatedLayout({
       current: [row("a"), orphanGroup("old")],
       desired: [field("a")],
@@ -113,8 +116,22 @@ describe("既にある削除候補グループ", () => {
     expect(groups).toHaveLength(1);
     expect(shape(layout)).toEqual([
       ["a"],
-      { group: ORPHAN_GROUP_CODE, layout: [["b"]] },
+      { group: ORPHAN_GROUP_CODE, layout: [["old"], ["b"]] },
     ]);
+  });
+
+  it("退避済みのフィールドを、並び替えのときにも落とさない", () => {
+    // regroup で組み直すときは desired から作り直すので、
+    // desired に居ない退避済みフィールドを見失いやすい。
+    const layout = buildUpdatedLayout({
+      current: [row("a"), orphanGroup("old")],
+      desired: [field("a")],
+      orphans: [],
+      regroup: true,
+    });
+
+    expect(collectLayoutFields(layout).map((f) => f.code).sort()).toEqual(["a", "old"]);
+    expect(shape(layout)).toEqual([["a"], { group: ORPHAN_GROUP_CODE, layout: [["old"]] }]);
   });
 
   it("目標に戻ってきたフィールドは、グループから出す", () => {

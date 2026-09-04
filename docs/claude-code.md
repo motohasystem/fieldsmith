@@ -110,6 +110,8 @@ fieldsmith update 123 current.json --deploy
   自動で用意されるので `fields` に書かない
 - `group` は「意味のまとまり」の名前。同じ `group` のフィールドが横に並ぶので、
   **続けて書く**（離れていると検証で弾かれる）
+- フォーム上のまとまり（折りたためるグループ）を求められたら `"layout": "sections"`。
+  同じ `group` が kintone のグループフィールドになる。既定は `grouped` のままでよい
 - 書かれていない項目は「現状維持」。値を変えたいときは明示的に書く（`"required": false` など）
 
 ---

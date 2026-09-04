@@ -1,3 +1,5 @@
+import { deriveFieldCode } from "./fieldSpec.js";
+
 /**
  * フォームレイアウトの組み立て。
  *
@@ -132,16 +134,30 @@ export function groupIntoRows(
   return rows;
 }
 
+export interface RegroupOptions extends GroupOptions {
+  /**
+   * group を実際のグループフィールドにするか。
+   * true のときは既存の GROUP をいったん解いてから組み直すので、
+   * 呼ぶ前にセクションのフィールドを追加しておく必要がある。
+   */
+  readonly sections?: boolean;
+}
+
 /**
  * kintone から取得した既存のレイアウトを並べ替える。
  *
- * GROUP と SUBTABLE の行はそのまま残す (中身の構造が別なので触らない)。
+ * 既定では GROUP と SUBTABLE の行はそのまま残す (中身の構造が別なので触らない)。
  * 連続する ROW だけをいったん平らにして、系統ごとにまとめ直す。
+ *
+ * `sections` を指定した場合は GROUP も fieldsmith が組み立てる対象になるので、
+ * 中身を取り出したうえで `group` に従って作り直す。
  */
 export function regroupLayout(
   layout: readonly LayoutRow[],
-  options: GroupOptions = {},
+  options: RegroupOptions = {},
 ): LayoutRow[] {
+  if (options.sections === true) return resectionLayout(layout, options);
+
   const result: LayoutRow[] = [];
   let pending: LayoutField[] = [];
 
@@ -169,14 +185,142 @@ export function regroupLayout(
   return result;
 }
 
+/**
+ * セクション指定でレイアウトを組み直す。
+ *
+ * 既存の GROUP は**中身を取り出してから捨てる**。
+ * グループフィールドそのものは properties に残るので、
+ * 目標に無くなったセクションは空のまま末尾に置き直す (勝手に消さない)。
+ */
+function resectionLayout(layout: readonly LayoutRow[], options: RegroupOptions): LayoutRow[] {
+  const fields: LayoutField[] = [];
+  const emptied: LayoutRow[] = [];
+  const others: LayoutRow[] = [];
+
+  for (const row of layout) {
+    if (row.type === "ROW") {
+      const own = (row as { fields?: unknown }).fields;
+      if (Array.isArray(own)) fields.push(...(own as LayoutField[]));
+      continue;
+    }
+    if (row.type === "GROUP") {
+      fields.push(...collectLayoutFields(((row as { layout?: LayoutRow[] }).layout ?? []) as LayoutRow[]));
+      emptied.push(row);
+      continue;
+    }
+    others.push(row);
+  }
+
+  const managed = sectionCodesOf(fields, options.groups);
+  const leftovers = emptied
+    .filter((row) => !managed.has(String((row as { code?: string }).code)))
+    .map((row): LayoutRow => ({ ...(row as Record<string, unknown>), type: "GROUP", layout: [] }));
+
+  return [...buildSectionedRows(fields, options), ...others, ...leftovers];
+}
+
+/**
+ * group の値から、グループフィールドのフィールドコードを導く。
+ *
+ * ラベルからコードを導くのと同じ規則を使う。**毎回同じ結果になること**が肝で、
+ * これによって update を繰り返してもグループが増えない
+ * (`_削除候補` を固定コードにしているのと同じ理由)。
+ */
+export function sectionCodeOf(name: string): string {
+  return deriveFieldCode(name);
+}
+
+/**
+ * フィールドの並びを、セクション (グループフィールド) と行に組み立てる。
+ *
+ * `group` が同じフィールドの連なりが 1 つのセクションになる。
+ * `group` の無いフィールドは、これまで通り素の行として置く。
+ * セクションの中でも、系統ごとに最大 maxPerRow 個までを横に並べる。
+ *
+ * 並び順は変えない。`group` が離れて書かれていないことは AppSpec の検証で保証済み。
+ */
+export function buildSectionedRows(
+  fields: readonly LayoutField[],
+  options: GroupOptions = {},
+): LayoutRow[] {
+  const groups = options.groups ?? {};
+  const result: LayoutRow[] = [];
+
+  let run: LayoutField[] = [];
+  let runGroup: string | undefined;
+
+  const flush = (): void => {
+    if (run.length === 0) return;
+    const rows = groupIntoRows(run, options).map(
+      (fields): LayoutRow => ({ type: "ROW", fields }),
+    );
+    if (runGroup === undefined) {
+      result.push(...rows);
+    } else {
+      result.push({
+        type: "GROUP",
+        code: sectionCodeOf(runGroup),
+        layout: rows,
+      } as LayoutRow);
+    }
+    run = [];
+  };
+
+  for (const field of fields) {
+    const raw = groups[field.code];
+    const group = raw === undefined || raw === "" ? undefined : raw;
+    if (group !== runGroup) {
+      flush();
+      runGroup = group;
+    }
+    run.push(field);
+  }
+  flush();
+
+  return result;
+}
+
+/** 目標の並びから、fieldsmith が面倒を見るセクションのフィールドコードを集める。 */
+export function sectionCodesOf(
+  fields: readonly LayoutField[],
+  groups: FieldGroups = {},
+): Set<string> {
+  const codes = new Set<string>();
+  for (const field of fields) {
+    const name = groups[field.code];
+    if (name !== undefined && name !== "") codes.add(sectionCodeOf(name));
+  }
+  return codes;
+}
+
 /** 並べ替えの結果を人が読める形にする (--dry-run と進捗表示で使う)。 */
 export function describeRows(rows: readonly (readonly LayoutField[])[]): string[] {
   return rows.map((row) => row.map((field) => field.code).join(" | "));
 }
 
+/** 組み上がったレイアウトを、入れ子も含めて人が読める形にする。 */
+export function describeLayout(rows: readonly LayoutRow[], indent = ""): string[] {
+  const lines: string[] = [];
+  for (const row of rows) {
+    if (row.type === "ROW") {
+      const fields = ((row as { fields?: LayoutField[] }).fields ?? []).map((f) => f.code);
+      lines.push(`${indent}${fields.join(" | ")}`);
+      continue;
+    }
+    const code = (row as { code?: string }).code ?? row.type;
+    lines.push(`${indent}▼ ${code}`);
+    lines.push(...describeLayout(((row as { layout?: LayoutRow[] }).layout ?? []), `${indent}    `));
+  }
+  return lines;
+}
+
 /**
  * 削除候補グループのフィールドコード。
  * 毎回同じコードを使うことで、更新を繰り返してもグループが増えない。
+ *
+ * **先頭の `_` には意味がある。** `deriveFieldCode` は前後の `_` を落とすので、
+ * `sectionCodeOf` がこのコードを返すことはない。
+ * つまり利用者が付けた `group` が、退避先と衝突することはない。
  */
 export const ORPHAN_GROUP_CODE = "_削除候補";
 export const ORPHAN_GROUP_LABEL = "削除候補";
@@ -226,6 +370,8 @@ export interface UpdatedLayoutInput {
   readonly orphans: readonly string[];
   /** 並びを組み直すか。false なら既存の行に手を触れない。 */
   readonly regroup: boolean;
+  /** group をグループフィールドにするか。regroup が true のときだけ効く。 */
+  readonly sections?: boolean;
   readonly maxPerRow?: number;
   readonly groups?: FieldGroups;
 }
@@ -264,25 +410,51 @@ export function buildUpdatedLayout(input: UpdatedLayoutInput): LayoutRow[] {
     removed,
   );
 
-  if (input.regroup) {
+  const groupOptions: GroupOptions = {
+    ...(input.maxPerRow === undefined ? {} : { maxPerRow: input.maxPerRow }),
+    ...(input.groups === undefined ? {} : { groups: input.groups }),
+  };
+  const placed = input.desired.filter((field) => !orphans.has(field.code));
+
+  if (input.regroup && input.sections === true) {
+    // セクションは fieldsmith が組み立てるので、既存の GROUP はいったん解く。
+    // 中身のフィールドは desired に含まれているため、ここで捨てても失われない。
+    const managed = sectionCodesOf(placed, input.groups);
+    const others = base.filter((row) => row.type !== "ROW" && row.type !== "GROUP");
+    // 目標から消えたセクションは、空のまま残す。グループフィールド自体は
+    // properties に在り、レイアウトから外すと行き場が無くなるため。
+    const leftovers = base
+      .filter(
+        (row) => row.type === "GROUP" && !managed.has(String((row as { code?: string }).code)),
+      )
+      .map((row): LayoutRow => ({ ...(row as Record<string, unknown>), type: "GROUP", layout: [] }));
+
+    base = [...buildSectionedRows(placed, groupOptions), ...others, ...leftovers];
+  } else if (input.regroup) {
     // ROW は目標の並びで作り直す。GROUP / SUBTABLE はそのまま残す。
     const others = base.filter((row) => row.type !== "ROW");
-    const rows = groupIntoRows(
-      input.desired.filter((field) => !orphans.has(field.code)),
-      {
-        ...(input.maxPerRow === undefined ? {} : { maxPerRow: input.maxPerRow }),
-        ...(input.groups === undefined ? {} : { groups: input.groups }),
-      },
-    ).map((row): LayoutRow => ({ type: "ROW", fields: row }));
+    const rows = groupIntoRows(placed, groupOptions).map(
+      (row): LayoutRow => ({ type: "ROW", fields: row }),
+    );
     base = [...rows, ...others];
   } else {
     // 手を触れない場合でも、戻ってきたフィールドは行として足す必要がある。
     base = [...base, ...revived.map((field): LayoutRow => ({ type: "ROW", fields: [field] }))];
   }
 
-  const parkedNow = [...orphans].map(
-    (code): LayoutField => known.get(code) ?? { code, type: "SINGLE_LINE_TEXT" },
-  );
+  // 既に退避してあって目標にも戻っていないものは、退避したままにする。
+  // orphans には入ってこない (もう動かす必要が無いので) が、
+  // レイアウト変更 API はフォーム上のすべてのフィールドを求めるため、
+  // ここで入れ直さないとレイアウトから消えてしまう。
+  const revivedCodes = new Set(revived.map((field) => field.code));
+  const stillParked = parked.filter((field) => !revivedCodes.has(field.code));
+
+  const parkedNow = [
+    ...stillParked,
+    ...[...orphans].map(
+      (code): LayoutField => known.get(code) ?? { code, type: "SINGLE_LINE_TEXT" },
+    ),
+  ];
   if (parkedNow.length === 0) return base;
 
   return [
