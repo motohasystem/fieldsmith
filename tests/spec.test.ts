@@ -61,7 +61,10 @@ describe("追加できないフィールド型", () => {
     ["STATUS", /プロセス管理/],
     ["CATEGORY", /カテゴリー/],
     ["RECORD_NUMBER", /自動生成/],
-    ["SUBTABLE", /未対応/],
+    // テーブルとグループは「未対応」ではなく「書き方が違う」ので、書き方を示す。
+    ["SUBTABLE", /table を付けてください/],
+    ["GROUP", /layout: "sections"/],
+    ["REFERENCE_TABLE", /未対応/],
   ])("%s は API を呼ぶ前に弾く", (type, pattern) => {
     const issues = expectIssues({ name: "アプリ", fields: [{ type, label: "x" }] });
     expect(issues).toHaveLength(1);

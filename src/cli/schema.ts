@@ -48,7 +48,7 @@ export function appSpecReference(): string {
 
   lines.push("## フィールド");
   lines.push("");
-  lines.push("すべての型に共通の任意キー: `code` `required` `unique` `noLabel` `group`");
+  lines.push("すべての型に共通の任意キー: `code` `required` `unique` `noLabel` `group` `table`");
   lines.push("");
   lines.push("- `code` を省略すると `label` から自動で導出される");
   lines.push("- `group` は意味のまとまりの名前。同じ `group` のフィールドは横に並ぶので、");
@@ -64,6 +64,29 @@ export function appSpecReference(): string {
   lines.push("");
   lines.push("`sections` では `group` の名前がグループのフィールドコードになるので、");
   lines.push("フィールドコードと重ならない名前にする（重なると検証で弾かれる）。");
+  lines.push("");
+  lines.push("### テーブル (`table`)");
+  lines.push("");
+  lines.push("同じ `table` を書いたフィールドが、kintone のテーブルの列になる。");
+  lines.push("`group` と同じく**続けて並べること**。入れ子では書かない。");
+  lines.push("");
+  lines.push("```json");
+  lines.push(
+    JSON.stringify(
+      [
+        { type: "SINGLE_LINE_TEXT", label: "品名", table: "明細" },
+        { type: "NUMBER", label: "数量", table: "明細" },
+      ],
+      null,
+      2,
+    ),
+  );
+  lines.push("```");
+  lines.push("");
+  lines.push("- `table` と `group` は同時に指定できない（kintone はテーブルにグループを置けない）");
+  lines.push("- テーブルの列は**一覧 (`views`) に指定できない**");
+  lines.push("- `deploy` は作れるが、**`update` はテーブルを変更できない**。");
+  lines.push("  列を足す・外す・出し入れすると終了コード 2 で止まる（kintone に列の退避先が無いため）");
   lines.push("");
   lines.push("| 型 | 固有のキー |");
   lines.push("|---|---|");

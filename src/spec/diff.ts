@@ -1,11 +1,13 @@
 import {
   appliesLayout,
   fieldGroups,
+  fieldTables,
   resolveFieldCode,
   resolveLayout,
   type AppSpec,
   type ViewSpec,
 } from "./appSpec.js";
+import { tableCodeOf } from "./layout.js";
 import type { FieldSpec } from "./fieldSpec.js";
 
 /**
@@ -56,6 +58,20 @@ export interface FieldOrphan {
   readonly label: string;
 }
 
+/**
+ * テーブルに関わる変更。
+ *
+ * **`update` では適用しない。** kintone のテーブルには列の退避先が無く
+ * (SUBTABLE のレイアウトは行を持たない平らな配列)、列を外に出すのは作り直しになる。
+ * fieldsmith の「消さずに削除候補へ移す」が成り立たないので、
+ * 黙って一部だけ適用せず、まとめて止める。
+ */
+export interface TableChange {
+  readonly code: string;
+  readonly table: string;
+  readonly kind: "added" | "updated" | "removed" | "moved";
+}
+
 export interface ViewDiff {
   readonly added: readonly ViewSpec[];
   readonly updated: readonly { name: string; view: ViewSpec; changes: readonly Change[] }[];
@@ -92,11 +108,20 @@ export interface LayoutDiff {
   readonly willApply: boolean;
 }
 
+const TABLE_CHANGE_LABEL: Record<TableChange["kind"], string> = {
+  added: "列を追加",
+  updated: "列の設定を変更",
+  removed: "列を削除",
+  moved: "出入り",
+};
+
 export interface AppDiff {
   readonly added: readonly FieldAddition[];
   readonly updated: readonly FieldUpdate[];
   readonly retyped: readonly FieldRetype[];
   readonly orphaned: readonly FieldOrphan[];
+  /** テーブルに関わる変化。update では適用できない。 */
+  readonly tableChanges: readonly TableChange[];
   /** アプリ名・説明・テーマ・一般設定の変化。 */
   readonly app: readonly Change[];
   readonly views: ViewDiff;
@@ -110,6 +135,7 @@ export function isEmptyDiff(diff: AppDiff): boolean {
     diff.updated.length === 0 &&
     diff.retyped.length === 0 &&
     diff.orphaned.length === 0 &&
+    diff.tableChanges.length === 0 &&
     diff.app.length === 0 &&
     diff.views.added.length === 0 &&
     diff.views.updated.length === 0 &&
@@ -161,10 +187,61 @@ export function diffAppSpec(current: AppSpec, desired: AppSpec): AppDiff {
     updated,
     retyped,
     orphaned,
+    tableChanges: compareTables(current, desired, { added, updated, orphaned }),
     app: compareAppSettings(current, desired),
     views: compareViews(current.views ?? [], desired.views ?? []),
     layout: compareLayout(current, desired),
   };
+}
+
+/**
+ * テーブルに関わる変更を拾う。
+ *
+ * 列の増減・設定変更はもちろん、フィールドがテーブルを出入りしたことも見る。
+ * 出入りは kintone では作り直しになり、**データが引き継がれない**ため。
+ */
+function compareTables(
+  current: AppSpec,
+  desired: AppSpec,
+  changes: {
+    added: readonly FieldAddition[];
+    updated: readonly FieldUpdate[];
+    orphaned: readonly FieldOrphan[];
+  },
+): TableChange[] {
+  const currentTables = fieldTables(current);
+  const desiredTables = fieldTables(desired);
+  const result: TableChange[] = [];
+
+  for (const entry of changes.added) {
+    const table = desiredTables[entry.code];
+    if (table !== undefined) result.push({ code: entry.code, table, kind: "added" });
+  }
+  for (const entry of changes.updated) {
+    const table = desiredTables[entry.code] ?? currentTables[entry.code];
+    if (table !== undefined) result.push({ code: entry.code, table, kind: "updated" });
+  }
+  for (const entry of changes.orphaned) {
+    const table = currentTables[entry.code];
+    if (table !== undefined) result.push({ code: entry.code, table, kind: "removed" });
+  }
+
+  // 両方に在るフィールドが、テーブルを出入りしていないか。
+  // 名前ではなくコードで比べる (名前だけ変えても同じテーブル)。
+  const codeOf = (name: string | undefined): string | undefined =>
+    name === undefined ? undefined : tableCodeOf(name);
+  const seen = new Set(result.map((change) => change.code));
+  for (const field of desired.fields) {
+    const code = resolveFieldCode(field);
+    if (seen.has(code)) continue;
+    const from = codeOf(currentTables[code]);
+    const to = codeOf(desiredTables[code]);
+    if (from === to) continue;
+    const table = desiredTables[code] ?? currentTables[code]!;
+    result.push({ code, table, kind: "moved" });
+  }
+
+  return result;
 }
 
 function compareLayout(current: AppSpec, desired: AppSpec): LayoutDiff {
@@ -225,7 +302,12 @@ function byCode(fields: readonly FieldSpec[]): Map<string, FieldSpec> {
  * 実際には何も起きないのに差分が永遠に消えないことになる。
  * 値を変えたいときは、明示的に書く (例: `"required": false`)。
  */
-const FIELD_KEYS_TO_IGNORE = new Set(["code", "type", "group"]);
+/**
+ * フィールド設定としては比べないキー。
+ * `code` と `type` は同一性そのもの、`group` と `table` は kintone に送らない
+ * fieldsmith 側の情報で、レイアウト差分とテーブル差分がそれぞれ見ている。
+ */
+const FIELD_KEYS_TO_IGNORE = new Set(["code", "type", "group", "table"]);
 
 function compareFields(current: FieldSpec, desired: FieldSpec): Change[] {
   const keys = new Set([
@@ -331,6 +413,12 @@ export function describeDiff(diff: AppDiff): string[] {
   }
   for (const retype of diff.retyped) {
     lines.push(`  ! ${retype.code}: 型を ${retype.from} → ${retype.to} に変更 (kintone では不可)`);
+  }
+  for (const change of diff.tableChanges) {
+    lines.push(
+      `  ! ${change.code}: テーブル「${change.table}」の${TABLE_CHANGE_LABEL[change.kind]}` +
+        " (update では反映できない)",
+    );
   }
   for (const orphan of diff.orphaned) {
     lines.push(`  - ${orphan.code} (${orphan.type}) を削除候補へ`);

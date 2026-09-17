@@ -136,7 +136,7 @@ describe("表現できないものを黙って捨てない", () => {
     const { spec, warnings } = toAppSpecFromKintone(
       base({
         properties: {
-          明細: { type: "SUBTABLE", code: "明細", label: "明細" },
+          // kintone がこの type を返すことは無いが、spec に書かれうるので弾く。
           参照: { type: "LOOKUP", code: "参照", label: "参照" },
           案件名: { type: "SINGLE_LINE_TEXT", code: "案件名", label: "案件名" },
         },
@@ -144,8 +144,8 @@ describe("表現できないものを黙って捨てない", () => {
     );
 
     expect(spec["fields"]).toHaveLength(1);
-    expect(warnings).toHaveLength(2);
-    expect(warnings.join()).toMatch(/明細.*SUBTABLE/);
+    expect(warnings).toHaveLength(1);
+    expect(warnings.join()).toMatch(/参照.*LOOKUP/);
     expect(warnings.join()).toMatch(/作られません/);
   });
 

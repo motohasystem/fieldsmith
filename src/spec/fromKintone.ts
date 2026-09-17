@@ -63,40 +63,62 @@ export function toAppSpecFromKintone(input: PullInput): PulledSpec {
   const order = fieldOrderFromLayout(input.layout ?? []);
   const sections = sectionsFromLayout(input.layout ?? [], input.properties);
 
-  const entries = Object.entries(input.properties)
-    .filter(([, property]) => {
-      const type = String(property["type"]);
-      if (AUTO_FIELD_TYPES.has(type)) return false;
-      if (LAYOUT_FIELD_TYPES.has(type)) return false;
-      if (!SUPPORTED.has(type)) {
-        warnings.push(
-          `フィールド「${property["label"] ?? property["code"]}」(${type}) は AppSpec で表現できないため除きました。` +
-            " デプロイし直しても、このフィールドは作られません。",
-        );
-        return false;
-      }
-      // ルックアップは独立した型ではなく、SINGLE_LINE_TEXT / NUMBER / LINK に
-      // 設定を付けたもの。型の検査だけでは素通りしてしまう。
-      //
-      // フィールドごと落とすのではなく、ただの文字列などとして残す。そこには
-      // 実際にデータが入っているし、AppSpec の側でもアプリ間の参照は
-      // 「人が kintone 上で繋ぐ」前提にしているため。
-      // @see README.md「ルックアップを対象外にしている理由」
-      if (property["lookup"] !== undefined) {
-        warnings.push(
-          `フィールド「${property["label"] ?? property["code"]}」のルックアップ設定は` +
-            " AppSpec に含められないため落としました。フィールド自体は残しています" +
-            " (この spec をデプロイすると、ルックアップではないフィールドになります)。",
-        );
-      }
-      return true;
-    })
-    // レイアウト上の位置で並べる。レイアウトに無いものは末尾へ。
-    .sort(([codeA], [codeB]) => {
-      const a = order.get(codeA) ?? Number.MAX_SAFE_INTEGER;
-      const b = order.get(codeB) ?? Number.MAX_SAFE_INTEGER;
-      return a - b;
-    });
+  const named = (property: Record<string, unknown>): unknown =>
+    property["label"] ?? property["code"];
+
+  /** その 1 フィールドを AppSpec に持ち込めるか。持ち込めない事情は warnings に残す。 */
+  const keep = (property: Record<string, unknown>): boolean => {
+    const type = String(property["type"]);
+    if (AUTO_FIELD_TYPES.has(type)) return false;
+    if (LAYOUT_FIELD_TYPES.has(type)) return false;
+    if (!SUPPORTED.has(type)) {
+      warnings.push(
+        `フィールド「${named(property)}」(${type}) は AppSpec で表現できないため除きました。` +
+          " デプロイし直しても、このフィールドは作られません。",
+      );
+      return false;
+    }
+    // ルックアップは独立した型ではなく、SINGLE_LINE_TEXT / NUMBER / LINK に
+    // 設定を付けたもの。型の検査だけでは素通りしてしまう。
+    //
+    // フィールドごと落とすのではなく、ただの文字列などとして残す。そこには
+    // 実際にデータが入っているし、AppSpec の側でもアプリ間の参照は
+    // 「人が kintone 上で繋ぐ」前提にしているため。
+    // @see README.md「ルックアップを対象外にしている理由」
+    if (property["lookup"] !== undefined) {
+      warnings.push(
+        `フィールド「${named(property)}」のルックアップ設定は` +
+          " AppSpec に含められないため落としました。フィールド自体は残しています" +
+          " (この spec をデプロイすると、ルックアップではないフィールドになります)。",
+      );
+    }
+    return true;
+  };
+
+  // テーブルは入れ子だが、AppSpec では列を平らに並べて `table` で結ぶ。
+  // ここで入れ子をほどいて、外のフィールドと同じ土俵に乗せる。
+  const entries: [string, Record<string, unknown>, string | undefined][] = [];
+  for (const [code, property] of Object.entries(input.properties)) {
+    if (String(property["type"]) !== "SUBTABLE") {
+      if (keep(property)) entries.push([code, property, undefined]);
+      continue;
+    }
+
+    // テーブル名は `table` に書く値なので、そこからコードに戻せる必要がある。
+    const label = property["label"];
+    const name = typeof label === "string" && deriveFieldCode(label) === code ? label : code;
+    const columns = (property["fields"] ?? {}) as KintoneProperties;
+    for (const [columnCode, column] of Object.entries(columns)) {
+      if (keep(column)) entries.push([columnCode, column, name]);
+    }
+  }
+
+  // レイアウト上の位置で並べる。レイアウトに無いものは末尾へ。
+  entries.sort(([codeA], [codeB]) => {
+    const a = order.get(codeA) ?? Number.MAX_SAFE_INTEGER;
+    const b = order.get(codeB) ?? Number.MAX_SAFE_INTEGER;
+    return a - b;
+  });
 
   const spec: Record<string, unknown> = {
     name: input.name,
@@ -108,8 +130,9 @@ export function toAppSpecFromKintone(input: PullInput): PulledSpec {
      * `sections` と名乗って往復できるようにする。
      */
     layout: sections.size > 0 ? "sections" : "stacked",
-    fields: entries.map(([code, property]) => {
+    fields: entries.map(([code, property, table]) => {
       const field = toFieldSpec(property);
+      if (table !== undefined) field["table"] = table;
       const section = sections.get(code);
       if (section !== undefined) field["group"] = section;
       return field;

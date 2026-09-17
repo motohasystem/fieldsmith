@@ -3,7 +3,7 @@ import { toAppSpecFromKintone, type KintoneProperties } from "../spec/fromKinton
 import {
   buildUpdatedLayout,
   collectLayoutFields,
-  describeRows,
+  describeLayout,
   ORPHAN_GROUP_CODE,
   ORPHAN_GROUP_LABEL,
   regroupLayout,
@@ -14,6 +14,7 @@ import { diffAppSpec, isEmptyDiff, type AppDiff } from "../spec/diff.js";
 import {
   appliesLayout,
   fieldGroups,
+  fieldTables,
   parseAppSpec,
   resolveFieldCode,
   resolveLayout,
@@ -169,6 +170,7 @@ export async function deployAppSpec(
         maxPerRow: layout.maxPerRow,
         // kintone のレイアウトには group が無いので、AppSpec 側の対応表を渡す。
         groups: fieldGroups(spec),
+        tables: fieldTables(spec),
         sections: layout.mode === "sections",
       });
 
@@ -182,12 +184,9 @@ export async function deployAppSpec(
       report({
         step: "updateLayout",
         message: `フォームを ${regrouped.length} 行に整えました`,
+        // テーブルやグループも含めて、実際に送った形をそのまま見せる。
         detail:
-          describeRows(
-            regrouped
-              .filter((row) => row.type === "ROW")
-              .map((row) => (row as { fields: { type: string; code: string }[] }).fields),
-          ).join(" / ") + ` / revision ${revision} → ${result.revision}`,
+          describeLayout(regrouped).join(" / ") + ` / revision ${revision} → ${result.revision}`,
       });
       revision = result.revision;
     }
@@ -607,6 +606,20 @@ export async function updateApp(
     }
   }
 
+  if (diff.tableChanges.length > 0) {
+    // テーブルには列の退避先が無い。中途半端に適用せず、まとめて止める。
+    const detail = diff.tableChanges
+      .map((change) => `    ${change.code} (テーブル「${change.table}」)`)
+      .join("\n");
+    throw new UnsupportedUpdateError(
+      "テーブルの変更は update では反映できません。\n" +
+        `${detail}\n` +
+        "  kintone はテーブルの列を外へ出せず、出すと作り直しになってデータが失われます。\n" +
+        "  テーブルの変更は kintone の画面で行い、そのあと pull で spec を取り直してください。",
+      diff,
+    );
+  }
+
   // 既に削除候補へ移してあるものは、もう動かす必要がない。
   const parked = new Set(pulled.parkedCodes);
   const orphanCodes = diff.orphaned
@@ -745,6 +758,7 @@ export async function updateApp(
         sections: resolveLayout(desired).mode === "sections",
         maxPerRow: resolveLayout(desired).maxPerRow,
         groups: fieldGroups(desired),
+        tables: fieldTables(desired),
       });
 
       const result = await kintone.call((client) =>

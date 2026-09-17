@@ -5,7 +5,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 // このスキーマの値は toAppSpecInput() でただのオブジェクトに落としてからコア (zod v3) に渡すため、
 // 2 つのバージョンが混ざることはない。
 import * as z from "zod/v4";
-import { APP_THEMES, parseAppSpec, type AppSpec } from "../spec/appSpec.js";
+import { APP_THEMES, parseAppSpec, resolveFieldCode, type AppSpec } from "../spec/appSpec.js";
 import { isOptionFieldType, SUPPORTED_FIELD_TYPES } from "../spec/fieldSpec.js";
 import { JSON_SHAPE_INSTRUCTION, REVISE_INSTRUCTION, SYSTEM_PROMPT } from "./prompt.js";
 
@@ -409,9 +409,11 @@ function buildUserMessage(prompt: string, base: AppSpec | undefined): string {
 /**
  * 直す場合に、モデルが表現できない項目を元の設計から引き継ぐ。
  *
- * `layout` と `icon` は LLM のスキーマに無い (前者は構造化出力の上限、
- * 後者は kintone から絵文字として取り出せないため)。
- * 引き継がないと、頼んでいないレイアウトの組み直しやアイコンの付け替えが起きる。
+ * `layout` `icon` `table` は LLM のスキーマに無い
+ * (`layout` と `table` は構造化出力のプロパティ数の上限、
+ *  `icon` は kintone から絵文字として取り出せないため)。
+ * 引き継がないと、頼んでいないレイアウトの組み直し・アイコンの付け替え・
+ * **テーブルの解体**が起きる。
  */
 function withInheritedFromBase(
   spec: Record<string, unknown>,
@@ -424,5 +426,20 @@ function withInheritedFromBase(
   if (spec["icon"] === undefined && base.icon !== undefined) inherited["icon"] = base.icon;
   // 元にアイコンが無いなら、頼まれてもいないのに付けない。
   if (base.icon === undefined) delete inherited["icon"];
+
+  // テーブルの所属はフィールドコードで引き継ぐ。
+  // モデルはテーブルを知らないので、ここで戻さないと列が外へ出てしまう。
+  const tables = new Map<string, string>();
+  for (const field of base.fields) {
+    if (field.table !== undefined) tables.set(resolveFieldCode(field), field.table);
+  }
+  if (tables.size > 0 && Array.isArray(spec["fields"])) {
+    inherited["fields"] = (spec["fields"] as Record<string, unknown>[]).map((field) => {
+      const code = field["code"];
+      const table = typeof code === "string" ? tables.get(code) : undefined;
+      return table === undefined ? field : { ...field, table };
+    });
+  }
+
   return inherited;
 }

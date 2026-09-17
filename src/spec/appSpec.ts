@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DEFAULT_MAX_PER_ROW, sectionCodeOf } from "./layout.js";
+import { DEFAULT_MAX_PER_ROW, sectionCodeOf, tableCodeOf } from "./layout.js";
 import {
   deriveFieldCode,
   fieldSpecSchema,
@@ -121,6 +121,11 @@ const appSpecObjectSchema = z
  */
 export const appSpecSchema = appSpecObjectSchema.superRefine((spec, ctx) => {
   const codes = new Set<string>();
+  /** テーブルの列になるフィールドコード → テーブル名。 */
+  const columnTables = new Map<string, string>();
+  for (const field of spec.fields) {
+    if (field.table !== undefined) columnTables.set(resolveFieldCode(field), field.table);
+  }
 
   spec.fields.forEach((field, index) => {
     const code = resolveFieldCode(field);
@@ -166,6 +171,18 @@ export const appSpecSchema = appSpecObjectSchema.superRefine((spec, ctx) => {
           code: z.ZodIssueCode.custom,
           path: ["views", index, "fields", fieldIndex],
           message: `フィールドコード "${code}" は fields に存在しません`,
+        });
+        return;
+      }
+      // テーブルの列は 1 レコードに複数の値を持つので、一覧の 1 列には収まらない。
+      const table = columnTables.get(code);
+      if (table !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["views", index, "fields", fieldIndex],
+          message:
+            `"${code}" はテーブル「${table}」の列なので、一覧には指定できません。` +
+            " 一覧に出したい値は、テーブルの外のフィールドにしてください。",
         });
       }
     });
@@ -222,6 +239,68 @@ export const appSpecSchema = appSpecObjectSchema.superRefine((spec, ctx) => {
     previousGroup = group;
   });
 
+  // テーブルも同じく、離れて書かれていると 2 つのテーブルに割れてしまう。
+  const seenTables = new Map<string, number>();
+  let previousTable: string | undefined;
+  spec.fields.forEach((field, index) => {
+    const table = field.table;
+    if (table !== undefined && table !== previousTable && seenTables.has(table)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["fields", index, "table"],
+        message:
+          `table "${table}" のフィールドが離れて書かれています ` +
+          `(${seenTables.get(table)! + 1} 番目のフィールドにも同じ table があります)。` +
+          " 同じテーブルの列は続けて並べてください。",
+      });
+    }
+    if (table !== undefined) seenTables.set(table, index);
+    previousTable = table;
+  });
+
+  // table はどの layout でも実体を作るので、常にコードを検証する。
+  const tableCodes = new Map<string, string>();
+  spec.fields.forEach((field, index) => {
+    const table = field.table;
+    if (table === undefined) return;
+
+    const addIssue = (message: string): void => {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fields", index, "table"], message });
+    };
+
+    // kintone はテーブルの中にグループを置けないので、両方に属することが有り得ない。
+    if (field.group !== undefined) {
+      addIssue(
+        `table "${table}" と group "${field.group}" は同時に指定できません。` +
+          " kintone はテーブルの中にグループを置けません。",
+      );
+    }
+
+    const tableCode = tableCodeOf(table);
+    const existing = tableCodes.get(tableCode);
+    if (existing !== undefined) {
+      if (existing !== table) {
+        addIssue(
+          `table "${table}" と "${existing}" は同じテーブルのフィールドコード` +
+            ` "${tableCode}" になります。どちらかを変えてください。`,
+        );
+      }
+      return;
+    }
+    tableCodes.set(tableCode, table);
+
+    const issue = validateFieldCode(tableCode);
+    if (issue) {
+      addIssue(`table から導出したフィールドコード "${tableCode}" が不正です: ${issue.reason}`);
+      return;
+    }
+    if (codes.has(tableCode)) {
+      addIssue(
+        `table "${table}" のテーブルが、フィールドコード "${tableCode}" と重複します`,
+      );
+    }
+  });
+
   // sections では group がそのままグループフィールドのコードになるので、
   // フィールドコードと同じ規約を満たしているかをここで見る。
   if (layoutModeOf(spec.layout) === "sections") {
@@ -252,7 +331,7 @@ export const appSpecSchema = appSpecObjectSchema.superRefine((spec, ctx) => {
         addIssue(`group から導出したフィールドコード "${sectionCode}" が不正です: ${issue.reason}`);
         return;
       }
-      if (codes.has(sectionCode)) {
+      if (codes.has(sectionCode) || tableCodes.has(sectionCode)) {
         addIssue(
           `group "${group}" のグループフィールドが、フィールドコード "${sectionCode}" と重複します`,
         );
@@ -378,6 +457,24 @@ function layoutModeOf(layout: AppSpec["layout"]): LayoutMode {
 /** レイアウトを fieldsmith が組み立てるか (stacked は既存の並びに触れない)。 */
 export function appliesLayout(mode: LayoutMode): boolean {
   return mode === "grouped" || mode === "sections";
+}
+
+/** フィールドコード → table の対応。レイアウトと properties の組み立てに渡す。 */
+export function fieldTables(spec: AppSpec): Record<string, string> {
+  const tables: Record<string, string> = {};
+  for (const field of spec.fields) {
+    if (field.table !== undefined) tables[resolveFieldCode(field)] = field.table;
+  }
+  return tables;
+}
+
+/** AppSpec に現れるテーブル名を、書かれた順に返す。 */
+export function tableNames(spec: AppSpec): string[] {
+  const names: string[] = [];
+  for (const field of spec.fields) {
+    if (field.table !== undefined && !names.includes(field.table)) names.push(field.table);
+  }
+  return names;
 }
 
 /** AppSpec に現れるセクション名を、書かれた順に返す。 */
