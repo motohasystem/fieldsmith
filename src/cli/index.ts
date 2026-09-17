@@ -46,7 +46,8 @@ import {
 import { describeDiff, diffAppSpec, isEmptyDiff } from "../spec/diff.js";
 import { buildFormRows, describeLayout } from "../spec/layout.js";
 import { toKintonePayloads } from "../spec/toKintone.js";
-import { backgroundFor, renderIcon } from "../icon/render.js";
+import { renderIcon } from "../icon/render.js";
+import { backgroundFor } from "../icon/name.js";
 import { EXIT_HINT } from "./exit.js";
 import { emitFailure, emitSuccess, isJsonMode, say, setJsonMode } from "./output.js";
 import { appSpecExample, appSpecJsonSchema, appSpecReference } from "./schema.js";

@@ -217,6 +217,27 @@ describe("表現できないものを黙って捨てない", () => {
     expect(warnings.join()).toMatch(/アイコン/);
   });
 
+  it("fieldsmith が上げたアイコンは絵文字に戻す", () => {
+    // kintone はアイコンを画像として持つので、画像からは何を描いたか読めない。
+    // アップロード時のファイル名に残してある。
+    const { spec, warnings } = toAppSpecFromKintone(
+      base({ icon: { type: "FILE", file: { name: "fieldsmith-icon-🏢-2563eb.png" } } }),
+    );
+
+    expect(spec["icon"]).toBe("🏢");
+    expect(spec["iconBackground"]).toBe("#2563eb");
+    expect(warnings).toEqual([]);
+  });
+
+  it("人が差し替えた画像は、これまで通り表現できないと伝える", () => {
+    const { spec, warnings } = toAppSpecFromKintone(
+      base({ icon: { type: "FILE", file: { name: "logo.png" } } }),
+    );
+
+    expect(spec["icon"]).toBeUndefined();
+    expect(warnings.join()).toMatch(/アプリアイコンに画像が設定されています/);
+  });
+
   it("組込みアイコンでは警告しない (指定していないのと同じ)", () => {
     expect(toAppSpecFromKintone(base({ icon: { type: "PRESET" } })).warnings).toEqual([]);
   });

@@ -65,28 +65,6 @@ export function stripEmojiModifiers(glyph: string): string {
   return [...cleaned][0] ?? "";
 }
 
-/**
- * アプリ名から背景色を決める。
- * 同じ名前なら常に同じ色になるので、作り直しても見た目が変わらない。
- */
-const PALETTE = [
-  "#2563eb",
-  "#059669",
-  "#dc2626",
-  "#7c3aed",
-  "#ea580c",
-  "#0891b2",
-  "#c026d3",
-  "#65a30d",
-] as const;
-
-export function backgroundFor(name: string): string {
-  let hash = 0;
-  for (const char of name) {
-    hash = (hash * 31 + char.codePointAt(0)!) >>> 0;
-  }
-  return PALETTE[hash % PALETTE.length]!;
-}
 
 /** アプリ名の先頭 1〜2 文字を頭文字として使う。 */
 export function initialsFor(name: string): string {
