@@ -113,6 +113,7 @@ fieldsmith update 123 current.json --deploy
 - フォーム上のまとまり（折りたためるグループ）を求められたら `"layout": "sections"`。
   同じ `group` が kintone のグループフィールドになる。既定は `grouped` のままでよい
 - 書かれていない項目は「現状維持」。値を変えたいときは明示的に書く（`"required": false` など）
+- **制約を外すときはキーを消さず、空文字を書く**（`"maxValue": ""`）。消すだけでは残る
 
 ---
 

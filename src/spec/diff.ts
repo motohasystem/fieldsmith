@@ -108,6 +108,60 @@ export interface LayoutDiff {
   readonly willApply: boolean;
 }
 
+/**
+ * spec から外したのに kintone 側に残る設定を拾う。
+ *
+ * 「書かれていない項目は現状維持」という仕様どおりだが、**キーを消す＝設定を外す**と
+ * 読むほうが自然で、しかも差分に出ないので「差分なし＝変わっていない」と読めてしまう。
+ * 変更としては扱わず、外し方を添えて警告にする。
+ *
+ * 外し方を示せるものだけを対象にする (真偽値なら `false`、それ以外は空文字)。
+ * テーマやタイトルフィールドのように「空にする」書き方が無いものは黙って見送る。
+ */
+function staleSettings(
+  label: string,
+  current: Record<string, unknown>,
+  desired: Record<string, unknown>,
+  keep?: ReadonlySet<string>,
+): string[] {
+  const warnings: string[] = [];
+
+  for (const key of Object.keys(current).sort()) {
+    if (keep !== undefined && !keep.has(key)) continue;
+    const from = current[key];
+    if (from === undefined || unset(from)) continue;
+    if (desired[key] !== undefined) continue;
+
+    const cleared = typeof from === "boolean" ? "false" : '""';
+    warnings.push(
+      `${label}: ${key} を spec から外しましたが、kintone 側の ${JSON.stringify(from)} は` +
+        `据え置かれます (外すには "${key}": ${cleared} と書きます)。`,
+    );
+  }
+
+  return warnings;
+}
+
+/** フィールドのうち、外し方を示せる設定。 */
+const FIELD_KEYS_TO_KEEP: ReadonlySet<string> = new Set([
+  "required",
+  "unique",
+  "noLabel",
+  "defaultValue",
+  "minValue",
+  "maxValue",
+  "minLength",
+  "maxLength",
+  "unit",
+  "digit",
+  "thumbnailSize",
+  "expression",
+  "hideExpression",
+]);
+
+/** アプリ全体のうち、外し方を示せる設定。 */
+const APP_KEYS_TO_KEEP: ReadonlySet<string> = new Set(["description"]);
+
 const TABLE_CHANGE_LABEL: Record<TableChange["kind"], string> = {
   added: "列を追加",
   updated: "列の設定を変更",
@@ -122,6 +176,11 @@ export interface AppDiff {
   readonly orphaned: readonly FieldOrphan[];
   /** テーブルに関わる変化。update では適用できない。 */
   readonly tableChanges: readonly TableChange[];
+  /**
+   * 差分にはならないが、伝えないと誤解される事柄。
+   * いまのところ「spec から外したのに kintone 側に残る設定」。
+   */
+  readonly warnings: readonly string[];
   /** アプリ名・説明・テーマ・一般設定の変化。 */
   readonly app: readonly Change[];
   readonly views: ViewDiff;
@@ -158,6 +217,7 @@ export function diffAppSpec(current: AppSpec, desired: AppSpec): AppDiff {
   const updated: FieldUpdate[] = [];
   const retyped: FieldRetype[] = [];
   const orphaned: FieldOrphan[] = [];
+  const warnings: string[] = [];
 
   for (const [code, field] of desiredFields) {
     const existing = currentFields.get(code);
@@ -174,7 +234,17 @@ export function diffAppSpec(current: AppSpec, desired: AppSpec): AppDiff {
     if (changes.length > 0) {
       updated.push({ code, field, changes });
     }
+    warnings.push(...staleSettings(code, existing, field, FIELD_KEYS_TO_KEEP));
   }
+
+  warnings.push(
+    ...staleSettings("(アプリ)", current, desired, APP_KEYS_TO_KEEP),
+    ...staleSettings(
+      "(アプリ設定)",
+      (current.settings ?? {}) as Record<string, unknown>,
+      (desired.settings ?? {}) as Record<string, unknown>,
+    ),
+  );
 
   for (const [code, field] of currentFields) {
     if (!desiredFields.has(code)) {
@@ -188,6 +258,7 @@ export function diffAppSpec(current: AppSpec, desired: AppSpec): AppDiff {
     retyped,
     orphaned,
     tableChanges: compareTables(current, desired, { added, updated, orphaned }),
+    warnings,
     app: compareAppSettings(current, desired),
     views: compareViews(current.views ?? [], desired.views ?? []),
     layout: compareLayout(current, desired),

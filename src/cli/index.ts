@@ -268,12 +268,14 @@ program
         }
       }
 
+      reportWarnings([...diff.warnings, ...pulled.warnings]);
+
       emitSuccess({
         command: "diff",
         app: { id: appId, name: pulled.appName },
         hasChanges: !isEmptyDiff(diff),
         diff,
-        warnings: pulled.warnings,
+        warnings: [...diff.warnings, ...pulled.warnings],
       });
     });
   });
@@ -402,6 +404,8 @@ program
         }
       }
 
+      reportWarnings([...result.diff.warnings, ...result.warnings]);
+
       emitSuccess({
         command: "update",
         app: { id: appId, name: result.appName, url: `${config.baseUrl}/k/${appId}/` },
@@ -410,7 +414,7 @@ program
         movedToOrphanGroup: result.pendingOrphans,
         revision: result.revision,
         diff: result.diff,
-        warnings: result.warnings,
+        warnings: [...result.diff.warnings, ...result.warnings],
       });
     });
   });
@@ -698,6 +702,19 @@ function printSpecSummary(spec: AppSpec): void {
       say(`  ${line}`);
     }
   }
+}
+
+/**
+ * 差分にはならないが伝える必要があることを出す。
+ *
+ * これまで `pull` だけが人向けに出していて、`diff` と `update` は
+ * `--json` にしか載せていなかった。人が見る場面でこそ要る情報なので揃える。
+ */
+function reportWarnings(warnings: readonly string[]): void {
+  if (warnings.length === 0) return;
+  say("");
+  say("注意:");
+  for (const warning of warnings) say(`  ⚠ ${warning}`);
 }
 
 async function confirm(question: string): Promise<boolean> {
