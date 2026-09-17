@@ -386,11 +386,23 @@ function compareViews(current: readonly ViewSpec[], desired: readonly ViewSpec[]
  * ここを分けると「required を書いていないフィールド」と
  * 「required: false と書いたフィールド」が毎回差分になり、無意味な変更が出続ける。
  */
+/**
+ * 2 つの設定値が同じ意味か。
+ *
+ * 「未指定」は `false` とも空文字とも同じ意味になる。
+ * kintone は未設定の上限などを空文字で返し、`pull` はそれを落とすので、
+ * 区別すると「制限を外した spec」が毎回差分に出続ける。
+ */
 function same(a: unknown, b: unknown): boolean {
   if (a === b) return true;
-  if (a === undefined) return b === false;
-  if (b === undefined) return a === false;
+  if (a === undefined) return unset(b);
+  if (b === undefined) return unset(a);
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** 未指定と同じ意味を持つ値。 */
+function unset(value: unknown): boolean {
+  return value === false || value === "";
 }
 
 /** 差分を人が読める行にする。 */

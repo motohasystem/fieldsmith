@@ -209,6 +209,20 @@ const optionsSchema = z
     }
   });
 
+/**
+ * 数値の設定 (上限・下限・初期値)。
+ *
+ * **kintone は文字列で返す** (`"31"`)。spec には数値でも書けるので、
+ * どちらで書いても同じものとして扱えるよう、文字列に寄せておく。
+ * 寄せないと「pull した `"0"`」と「手書きの `0`」が別物になり、
+ * 中身が同じなのに毎回の差分に出続ける。
+ *
+ * 空文字は「制限なし」を表す kintone の書き方なので、そのまま通す。
+ */
+const numericSetting = z
+  .union([z.string(), z.number()])
+  .transform((value) => (typeof value === "number" ? String(value) : value));
+
 const plainField = <T extends SupportedFieldType>(type: T) =>
   z.object({ ...baseFieldShape, type: z.literal(type) }).strict();
 
@@ -270,9 +284,9 @@ const fieldSpecObjectSchema = z.discriminatedUnion("type", [
     .object({
       ...baseFieldShape,
       type: z.literal("NUMBER"),
-      defaultValue: z.union([z.string(), z.number()]).optional(),
-      minValue: z.union([z.string(), z.number()]).optional(),
-      maxValue: z.union([z.string(), z.number()]).optional(),
+      defaultValue: numericSetting.optional(),
+      minValue: numericSetting.optional(),
+      maxValue: numericSetting.optional(),
       /** 桁区切りを表示するか。 */
       digit: z.boolean().optional(),
       /** 小数点以下の表示桁数。 */
