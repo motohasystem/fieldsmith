@@ -7,6 +7,10 @@ dist/
 .env.*
 !.env.example
 
+# 案件から起こした作業メモ。顧客名・環境のドメイン・アプリ ID・実データが入るので、
+# public なこのリポジトリには置かない。手元には残す。
+docs/plan-*.md
+
 # 実行時の生成物
 *.log
 coverage/
