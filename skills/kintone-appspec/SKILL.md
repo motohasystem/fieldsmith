@@ -173,6 +173,17 @@ $F update 761 案件管理-761.json         # 4. 動作テスト環境まで適�
 $F update 761 案件管理-761.json --deploy   # 5. 確認が取れたら運用環境へ反映する
 ```
 
+### フォームの並びを知りたいときは `layout`
+
+「このフィールドの近くに置きたい」「いまどう並んでいるか」を聞かれたら `pull` ではなく `layout`。**読み取りのみ。**
+
+```bash
+npx fieldsmith layout <appId>            # 運用環境
+npx fieldsmith layout <appId> --preview  # 動作テスト環境 (反映前の確認)
+```
+
+AppSpec が扱えない関連レコード一覧やラベルも出るので、spec だけでは分からないことが分かる。
+
 ### データを投入する前に `check` を通す
 
 レコードの CSV を渡されたら、投入の前に必ず突き合わせる。**kintone にも Claude にも接続しない。**

@@ -15,6 +15,7 @@ import { createAuthenticatedKintone, KintoneRequestError } from "../kintone/clie
 import {
   DeployError,
   deployAppSpec,
+  fetchForm,
   pullApp,
   UnsupportedUpdateError,
   updateApp,
@@ -45,6 +46,7 @@ import {
 } from "../spec/appSpec.js";
 import { describeDiff, diffAppSpec, isEmptyDiff } from "../spec/diff.js";
 import { checkRecords } from "../spec/checkRecords.js";
+import { describeForm } from "../spec/describeForm.js";
 import { CsvError, parseCsv, toCsvTable } from "../csv.js";
 import { buildFormRows, describeLayout } from "../spec/layout.js";
 import { toKintonePayloads } from "../spec/toKintone.js";
@@ -175,6 +177,35 @@ program
       return;
     }
     process.stdout.write(`${appSpecReference()}\n`);
+  });
+
+program
+  .command("layout")
+  .description("フォームの構造を表示する (読み取りのみ)")
+  .argument("<appId>", "アプリ ID")
+  .option("--preview", "動作テスト環境を見る (既定は運用環境)")
+  .action(async (appId: string, options: { preview?: boolean }) => {
+    await run("layout", async () => {
+      const kintone = connect(config_());
+      const form = await fetchForm(appId, kintone, {
+        ...(options.preview === true ? { preview: true } : {}),
+      });
+      const lines = describeForm(form.layout, { properties: form.properties });
+
+      say(
+        `アプリ ${appId}「${form.appName}」 ${lines.length === 0 ? "(空)" : `${form.layout.length} 行`}` +
+          `${options.preview === true ? " / 動作テスト環境" : ""}`,
+      );
+      say("");
+      for (const line of lines) say(line);
+
+      emitSuccess({
+        command: "layout",
+        app: { id: appId, name: form.appName },
+        preview: options.preview === true,
+        layout: form.layout,
+      });
+    });
   });
 
 program
@@ -815,6 +846,9 @@ function readPrompt(argument: string | undefined, filePath: string | undefined) 
 class CliError extends Error {}
 
 function config_(): KintoneConfig {
+  // どのファイルから読んだかは、繋がらないときに真っ先に知りたい。
+  // --verbose の判定はコマンドを解釈したあとでないとできないので、ここで出す。
+  if (loadedEnvFile !== null) trace(`認証情報: ${loadedEnvFile}`);
   return loadKintoneConfig(process.env);
 }
 
@@ -929,5 +963,9 @@ function apiErrorMessage(error: InstanceType<typeof Anthropic.APIError>): string
   return typeof message === "string" ? message : error.message;
 }
 
-loadDotEnv();
+/**
+ * 認証情報の読み込みは、コマンドを解釈する前に済ませる必要がある。
+ * 読んだファイルは覚えておき、`--verbose` のときに `config_()` から知らせる。
+ */
+const loadedEnvFile = loadDotEnv();
 await program.parseAsync(process.argv);

@@ -495,6 +495,35 @@ export async function pullApp(
   };
 }
 
+/**
+ * フォームの構造だけを読む。**読み取りしかしない。**
+ *
+ * `pullApp` と違って AppSpec には変換しない。AppSpec が表現しない型や飾りも
+ * そのまま見たいので、kintone が返す形のまま渡す。
+ */
+export async function fetchForm(
+  appId: string,
+  kintone: AuthenticatedKintone,
+  options: { readonly preview?: boolean } = {},
+): Promise<{
+  readonly appName: string;
+  readonly layout: LayoutRow[];
+  readonly properties: KintoneProperties;
+}> {
+  const preview = options.preview === true;
+  const [settings, form, layout] = await Promise.all([
+    kintone.call((client) => client.app.getAppSettings({ app: appId, preview })),
+    kintone.call((client) => client.app.getFormFields({ app: appId, preview })),
+    kintone.call((client) => client.app.getFormLayout({ app: appId, preview })),
+  ]);
+
+  return {
+    appName: settings.name,
+    layout: layout.layout as unknown as LayoutRow[],
+    properties: form.properties as unknown as KintoneProperties,
+  };
+}
+
 /** 削除候補グループの中に居るフィールドコード。 */
 function parkedFieldCodes(layout: readonly LayoutRow[]): string[] {
   const group = layout.find(

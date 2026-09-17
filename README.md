@@ -133,6 +133,7 @@ npm run fieldsmith -- create -f requirements.md
 | `revise <appId> [指示]` | 指示に沿って書き換えた AppSpec を作る（要 Claude API）|
 | `status <appId>` | 運用環境への反映状況を確認する |
 | `login` / `logout` | kintone の OAuth トークンの取得・破棄 |
+| `layout <appId>` | フォームの構造を表示する（読み取りのみ）|
 | `check <spec.json> <data.csv>` | 投入するデータが AppSpec に収まるか確かめる（接続しない）|
 | `schema` | AppSpec の書き方を出力する（AI エージェント向け）|
 | `plan [prompt]` | 要件から AppSpec を生成する。`-o` で保存 |
@@ -152,7 +153,7 @@ cp .env.example .env   # 値を埋める
 
 | 用途 | 設定するもの |
 |---|---|
-| `deploy` `pull` `diff` `update` `status` | kintone の認証情報（下記） |
+| `deploy` `pull` `diff` `update` `status` `layout` | kintone の認証情報（下記） |
 | `plan` `create` `revise` | 上記 + `ANTHROPIC_API_KEY` または `ant auth login` |
 
 ### kintone の認証は 2 通りから選ぶ
@@ -187,6 +188,22 @@ KINTONE_OAUTH_TOKEN_ENDPOINT=...
 
 両方あるときはパスワード認証を使う。`KINTONE_AUTH=oauth` で明示的に選べる。
 いま何で繋いでいるかは `--verbose` で分かる。
+
+#### どこに置くか
+
+次の順で探し、**最初に見つかった 1 つだけ**を読む。重ねて読むと、どの値が
+どこから来たのか追えなくなるため。
+
+| 順 | 場所 | 使いどころ |
+|---|---|---|
+| 1 | `$FIELDSMITH_ENV` | どれを読むかを完全に決めたいとき |
+| 2 | `./.env` | リポジトリ直下で作業しているとき |
+| 3 | `~/.config/fieldsmith/default.env` | **どのディレクトリから叩いても効かせたいとき** |
+
+3 番目があると、案件のディレクトリから `fieldsmith deploy spec.json` がそのまま通る。
+どのファイルを読んだかは `--verbose` で出る。
+
+既にある環境変数は上書きしない。CI で注入した値のほうが優先される。
 
 いずれの場合も、実行するユーザーに **「アプリの作成」権限**が必要。
 
@@ -394,6 +411,33 @@ fieldsmith の「消さずに削除候補へ移す」が成り立たないので
 
 `plan` / `create` / `revise` はテーブルを作らない（構造化出力の上限のため）。
 `revise` にかけても、元の spec のテーブルは**列の所属ごと引き継ぐ**。
+
+## フォームの構造を読む
+
+`pull` は AppSpec を吐くので、**どれが同じ行に並んでいるか**が見えない。
+「このフィールドの近くに何かを置きたい」ときに要るのは、定義ではなく並び。
+
+```bash
+fieldsmith layout 772
+```
+
+```
+アプリ 772「在庫明細」 5 行
+
+1: 年月日 (DATE) | 倉庫コード (SINGLE_LINE_TEXT) | 倉庫名 (SINGLE_LINE_TEXT)
+2: 倉庫情報 (REFERENCE_TABLE) → アプリ 774
+3: <LABEL>
+4: ▦ 明細 (テーブル)
+     品名 (SINGLE_LINE_TEXT) | 数量 (NUMBER)
+5: ▼ _削除候補 (グループ)
+     入数 (NUMBER)
+```
+
+**AppSpec が扱えないものこそ、見えることに価値がある。** 関連レコード一覧は
+参照先のアプリを併記し、ラベルや罫線も `<LABEL>` として出す。
+`_削除候補` の中身が見えると、型を変えた名残にも気づける。
+
+既定は運用環境。`--preview` を付けると動作テスト環境を見る（反映後の答え合わせに要る）。
 
 ## 投入するデータを先に確かめる
 
