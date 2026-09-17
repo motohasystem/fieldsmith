@@ -219,3 +219,88 @@ describe("並びの組み直し", () => {
     expect(shape(layout)).toEqual([["a", "b"]]);
   });
 });
+
+/**
+ * AppSpec に現れない要素。
+ *
+ * 組み直しは desired を起点にするので、そこに居ないものは何もしないと消える。
+ * フィールドなら「レイアウトに指定が足りない」で更新ごと失敗し、
+ * 飾り (ラベル・スペース・罫線) は API が求めないぶん黙って消える。
+ */
+describe("AppSpec に現れない要素を捨てない", () => {
+  const reference = (code: string): LayoutRow => ({
+    type: "ROW",
+    fields: [{ code, type: "REFERENCE_TABLE" }],
+  });
+  const label = (elementId: string): LayoutRow => ({
+    type: "ROW",
+    fields: [{ type: "LABEL", label: "■", elementId } as unknown as LayoutField],
+  });
+
+  it("関連レコード一覧を残す", () => {
+    const layout = buildUpdatedLayout({
+      current: [row("倉庫コード"), reference("倉庫情報"), row("商品名")],
+      desired: [field("倉庫コード"), field("商品名")],
+      orphans: [],
+      regroup: true,
+    });
+
+    expect(collectLayoutFields(layout).map((f) => f.code)).toContain("倉庫情報");
+  });
+
+  it("直前のフィールドの位置に戻す", () => {
+    // 末尾に寄せると、link で置いた位置が update のたびに崩れる。
+    const layout = buildUpdatedLayout({
+      current: [row("倉庫コード"), reference("倉庫情報"), row("商品名")],
+      desired: [field("倉庫コード"), field("商品名")],
+      orphans: [],
+      // 横並びを止めて、位置が分かる形で見る。
+      regroup: true,
+      maxPerRow: 1,
+    });
+
+    expect(shape(layout)).toEqual([["倉庫コード"], ["倉庫情報"], ["商品名"]]);
+  });
+
+  it("ラベルや罫線 (code を持たない飾り) も残す", () => {
+    const layout = buildUpdatedLayout({
+      current: [row("件名"), label("l1")],
+      desired: [field("件名")],
+      orphans: [],
+      regroup: true,
+    });
+
+    const kinds = layout.flatMap((r) =>
+      ((r as { fields?: { type: string }[] }).fields ?? []).map((f) => f.type),
+    );
+    expect(kinds).toContain("LABEL");
+  });
+
+  it("手掛かりのフィールドごと消えても捨てない", () => {
+    // 直前のフィールドを削除候補へ送った場合。位置は諦めても、残す。
+    const layout = buildUpdatedLayout({
+      current: [row("倉庫コード"), reference("倉庫情報")],
+      desired: [field("商品名")],
+      orphans: ["倉庫コード"],
+      regroup: true,
+    });
+
+    expect(collectLayoutFields(layout).map((f) => f.code)).toContain("倉庫情報");
+  });
+
+  it("セクションでも残す", () => {
+    const layout = buildUpdatedLayout({
+      current: [row("書名"), reference("貸出履歴")],
+      desired: [field("書名")],
+      orphans: [],
+      regroup: true,
+      sections: true,
+      groups: { 書名: "書誌情報" },
+    });
+
+    expect(shape(layout)).toEqual([
+      { group: "書誌情報", layout: [["書名"]] },
+      ["貸出履歴"],
+    ]);
+  });
+});

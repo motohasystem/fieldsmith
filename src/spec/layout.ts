@@ -482,6 +482,125 @@ export interface UpdatedLayoutInput {
 }
 
 /**
+ * レイアウト上の、fieldsmith が並べ直さない要素。
+ *
+ * AppSpec が表現しない型 (関連レコード一覧など) のほか、
+ * フィールドですらない飾り (ラベル・スペース・罫線。`code` ではなく `elementId` を持つ) も
+ * ここに入る。**AppSpec には現れないので、捨てると二度と戻せない。**
+ * 直前のフィールドに紐づけておき、組み直したあとに同じ位置へ差し戻す。
+ */
+interface PreservedRow {
+  /** 直前にあった、組み直しの対象になるフィールドのコード。先頭なら undefined。 */
+  readonly after: string | undefined;
+  readonly row: LayoutRow;
+}
+
+/**
+ * 目標の並びでレイアウトを組み直す。**AppSpec に現れないものは位置ごと保つ。**
+ *
+ * 組み直しは `desired` を起点にするので、そこに居ないものは何もしないと消える。
+ * レイアウト変更 API はフォーム上のすべてのフィールドを求めるため、
+ * 落とすと更新そのものが失敗する。飾りは API が求めないぶん、
+ * 黙って消えてしまう分だけ質が悪い。
+ */
+function rebuildPreserving(
+  base: readonly LayoutRow[],
+  placed: readonly LayoutField[],
+  options: BuildRowsOptions,
+): LayoutRow[] {
+  const managed = new Set(placed.map((field) => field.code));
+  const sections = options.sections === true;
+  const wantedSections = sections ? sectionCodesOf(placed, options.groups) : new Set<string>();
+
+  const preserved: PreservedRow[] = [];
+  let anchor: string | undefined;
+
+  /** その行を解いて組み直すか。解かないものはまるごと保つ。 */
+  const keepWhole = (row: LayoutRow): boolean => {
+    if (row.type === "ROW") return false;
+    if (row.type === "GROUP") return !sections;
+    if (row.type === "SUBTABLE") return !isManagedTable(row, options.tables);
+    return true;
+  };
+
+  /** 位置の手掛かりを、その行に含まれるフィールドまで進める。 */
+  const advance = (row: LayoutRow): void => {
+    for (const field of collectLayoutFields([row])) {
+      if (managed.has(field.code)) anchor = field.code;
+    }
+  };
+
+  for (const row of base) {
+    if (keepWhole(row)) {
+      preserved.push({ after: anchor, row });
+      advance(row);
+      continue;
+    }
+
+    if (row.type !== "ROW") {
+      // 解く GROUP / テーブル。中身は placed に含まれているので位置だけ進める。
+      advance(row);
+      // 目標から消えたセクションは、空のまま残す。
+      // グループフィールドは properties に在り、レイアウトから外すと行き場が無い。
+      if (row.type === "GROUP" && !wantedSections.has(String((row as { code?: string }).code))) {
+        preserved.push({
+          after: anchor,
+          row: { ...(row as Record<string, unknown>), type: "GROUP", layout: [] } as LayoutRow,
+        });
+      }
+      continue;
+    }
+
+    // 1 つの行に、組み直すフィールドと保つ要素が混ざっていることがある。
+    let pending: LayoutField[] = [];
+    let pendingAfter = anchor;
+    const flush = (): void => {
+      if (pending.length === 0) return;
+      preserved.push({ after: pendingAfter, row: { type: "ROW", fields: pending } });
+      pending = [];
+    };
+
+    for (const item of (row as { fields?: LayoutField[] }).fields ?? []) {
+      if (typeof item.code === "string" && managed.has(item.code)) {
+        flush();
+        anchor = item.code;
+        pendingAfter = anchor;
+        continue;
+      }
+      pending.push(item);
+    }
+    flush();
+  }
+
+  const held = new Map<string | undefined, LayoutRow[]>();
+  for (const entry of preserved) {
+    const rows = held.get(entry.after);
+    if (rows === undefined) held.set(entry.after, [entry.row]);
+    else rows.push(entry.row);
+  }
+
+  const result: LayoutRow[] = [];
+  const take = (key: string | undefined): void => {
+    const rows = held.get(key);
+    if (rows === undefined) return;
+    result.push(...rows);
+    held.delete(key);
+  };
+
+  take(undefined);
+  for (const row of buildFormRows(placed, options)) {
+    result.push(row);
+    for (const field of collectLayoutFields([row])) {
+      if (typeof field.code === "string") take(field.code);
+    }
+  }
+  // 手掛かりのフィールドごと消えたものは末尾へ。位置は諦めても、捨てはしない。
+  for (const rows of held.values()) result.push(...rows);
+
+  return result;
+}
+
+/**
  * 更新後のフォームレイアウトを組み立てる。
  *
  * レイアウト変更 API は「フォーム上のすべてのフィールド」の指定を求めるので、
@@ -522,37 +641,11 @@ export function buildUpdatedLayout(input: UpdatedLayoutInput): LayoutRow[] {
   };
   const placed = input.desired.filter((field) => !orphans.has(field.code));
 
-  if (input.regroup && input.sections === true) {
-    // セクションは fieldsmith が組み立てるので、既存の GROUP はいったん解く。
-    // 中身のフィールドは desired に含まれているため、ここで捨てても失われない。
-    const managed = sectionCodesOf(placed, input.groups);
-    const others = base.filter(
-      (row) =>
-        row.type !== "ROW" &&
-        row.type !== "GROUP" &&
-        !(row.type === "SUBTABLE" && isManagedTable(row, input.tables)),
-    );
-    // 目標から消えたセクションは、空のまま残す。グループフィールド自体は
-    // properties に在り、レイアウトから外すと行き場が無くなるため。
-    const leftovers = base
-      .filter(
-        (row) => row.type === "GROUP" && !managed.has(String((row as { code?: string }).code)),
-      )
-      .map((row): LayoutRow => ({ ...(row as Record<string, unknown>), type: "GROUP", layout: [] }));
-
-    base = [
-      ...buildFormRows(placed, { ...groupOptions, sections: true }),
-      ...others,
-      ...leftovers,
-    ];
-  } else if (input.regroup) {
-    // ROW と、AppSpec が知っているテーブルは目標の並びで作り直す。
-    // GROUP と知らないテーブルはそのまま残す。
-    const others = base.filter(
-      (row) =>
-        row.type !== "ROW" && !(row.type === "SUBTABLE" && isManagedTable(row, input.tables)),
-    );
-    base = [...buildFormRows(placed, groupOptions), ...others];
+  if (input.regroup) {
+    base = rebuildPreserving(base, placed, {
+      ...groupOptions,
+      ...(input.sections === true ? { sections: true } : {}),
+    });
   } else {
     // 手を触れない場合でも、戻ってきたフィールドは行として足す必要がある。
     base = [...base, ...revived.map((field): LayoutRow => ({ type: "ROW", fields: [field] }))];

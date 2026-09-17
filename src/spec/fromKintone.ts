@@ -74,7 +74,8 @@ export function toAppSpecFromKintone(input: PullInput): PulledSpec {
     if (!SUPPORTED.has(type)) {
       warnings.push(
         `フィールド「${named(property)}」(${type}) は AppSpec で表現できないため除きました。` +
-          " デプロイし直しても、このフィールドは作られません。",
+          " デプロイし直しても、このフィールドは作られません" +
+          " (既存アプリの update では、フォーム上のこのフィールドはそのまま残ります)。",
       );
       return false;
     }
