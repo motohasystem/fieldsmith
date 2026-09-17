@@ -44,6 +44,8 @@ import {
   type AppSpec,
 } from "../spec/appSpec.js";
 import { describeDiff, diffAppSpec, isEmptyDiff } from "../spec/diff.js";
+import { checkRecords } from "../spec/checkRecords.js";
+import { CsvError, parseCsv, toCsvTable } from "../csv.js";
 import { buildFormRows, describeLayout } from "../spec/layout.js";
 import { toKintonePayloads } from "../spec/toKintone.js";
 import { renderIcon } from "../icon/render.js";
@@ -173,6 +175,64 @@ program
       return;
     }
     process.stdout.write(`${appSpecReference()}\n`);
+  });
+
+program
+  .command("check")
+  .description("投入するデータが AppSpec に収まるか確かめる (kintone に接続しない)")
+  .argument("<spec>", "AppSpec の JSON ファイル")
+  .argument("<data>", "投入するレコードの CSV (cli-kintone と同じ形式)")
+  .action(async (specPath: string, dataPath: string) => {
+    await run("check", async () => {
+      const spec = readSpecFile(specPath);
+      const table = toCsvTable(parseCsv(readTextFile(dataPath)));
+      const result = checkRecords(spec, table);
+
+      say(
+        `${result.records.toLocaleString("en-US")} 件 / ${result.columns} 列 を` +
+          ` ${specPath} と突き合わせます`,
+      );
+      say("");
+
+      for (const issue of result.issues) {
+        const mark = issue.severity === "error" ? "✗" : "⚠";
+        const count = issue.count > 0 ? ` (${issue.count.toLocaleString("en-US")} 件)` : "";
+        say(`${mark} ${issue.field}: ${issue.message}${count}`);
+        for (const sample of issue.samples) {
+          const id = sample.id === "" ? "" : ` (${sample.id})`;
+          say(`    ${sample.line} 行目${id} = ${JSON.stringify(sample.value)}`);
+        }
+      }
+
+      if (result.issues.length === 0) {
+        say("✓ 違反はありません。");
+      } else {
+        say("");
+        say(`${result.errors} 件のエラー / ${result.warnings} 件の警告`);
+      }
+
+      if (result.errors > 0) {
+        emitFailure({
+          command: "check",
+          kind: "validation",
+          message: "このまま投入すると失敗します。CSV か AppSpec のどちらかを直してください。",
+          // 人向けには上で出し切っているので、二重に並べない。
+          ...(isJsonMode()
+            ? {
+                issues: result.issues
+                  .filter((issue) => issue.severity === "error")
+                  .map((issue) => ({
+                    path: issue.field,
+                    message: `${issue.message} (${issue.count} 件)`,
+                  })),
+              }
+            : {}),
+        });
+        return;
+      }
+
+      emitSuccess({ command: "check", spec: specPath, data: dataPath, ...result });
+    });
   });
 
 program
@@ -672,6 +732,14 @@ function readSpecFile(path: string): AppSpec {
   return parseAppSpec(parsed);
 }
 
+function readTextFile(path: string): string {
+  try {
+    return readFileSync(path, "utf-8");
+  } catch {
+    throw new CliError(`ファイルを読み込めませんでした: ${path}`);
+  }
+}
+
 function printSpecSummary(spec: AppSpec): void {
   say(`\nアプリ名: ${spec.name}`);
   if (spec.icon !== undefined) {
@@ -787,6 +855,10 @@ async function run(command: string, action: () => Promise<void>): Promise<void> 
         message: error.message,
         issues: error.issues,
       });
+      return;
+    }
+    if (error instanceof CsvError) {
+      emitFailure({ command, kind: "input", message: error.message });
       return;
     }
     if (error instanceof ConfigError) {

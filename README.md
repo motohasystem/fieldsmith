@@ -32,6 +32,7 @@ fieldsmith plan -f requirements.md -o bookshelf.json
 | コマンド | kintone | Claude |
 |---|---|---|
 | `deploy` `status` | 触る | **呼ばない** |
+| `check` | **触らない** | 呼ばない |
 | `plan` | 触らない | 呼ぶ |
 | `create` | 触る | 呼ぶ（= `plan` + `deploy`） |
 
@@ -132,6 +133,7 @@ npm run fieldsmith -- create -f requirements.md
 | `revise <appId> [指示]` | 指示に沿って書き換えた AppSpec を作る（要 Claude API）|
 | `status <appId>` | 運用環境への反映状況を確認する |
 | `login` / `logout` | kintone の OAuth トークンの取得・破棄 |
+| `check <spec.json> <data.csv>` | 投入するデータが AppSpec に収まるか確かめる（接続しない）|
 | `schema` | AppSpec の書き方を出力する（AI エージェント向け）|
 | `plan [prompt]` | 要件から AppSpec を生成する。`-o` で保存 |
 | `create [prompt]` | 生成 → 確認 → デプロイ |
@@ -392,6 +394,56 @@ fieldsmith の「消さずに削除候補へ移す」が成り立たないので
 
 `plan` / `create` / `revise` はテーブルを作らない（構造化出力の上限のため）。
 `revise` にかけても、元の spec のテーブルは**列の所属ごと引き継ぐ**。
+
+## 投入するデータを先に確かめる
+
+`deploy --dry-run` が「その spec は正しいか」を接続せずに見るのに対して、
+`check` は「**そのデータはこの spec に入るか**」を見る。
+
+```bash
+fieldsmith check 取引先マスタ.json records.csv
+```
+
+```
+3,927 件 / 63 列 を 取引先マスタ.json と突き合わせます
+
+✗ 締日: maxValue 31 を超える値があります (260 件)
+    3421 行目 (取引先コード=51234001001) = "90"
+    3428 行目 (取引先コード=51234002001) = "90"
+✗ 郵便番号: maxLength 8 を超える値があります (最長 9 文字) (5 件)
+    1122 行目 (取引先コード=51234099001) = "x305-0056"
+⚠ メールアドレス: spec にありますが CSV に列がありません (空で登録されます)
+⚠ 与信限度額: CSV にありますが spec にありません (無視されます)
+
+2 件のエラー / 2 件の警告
+```
+
+**kintone のレコード追加は 100 件のかたまり単位で失敗する。** 1 件の違反で
+そのかたまりが丸ごと落ちるので、6 件の不正データが 600 件の取りこぼしになる。
+投入してから気づくと被害が桁で増えるため、先に突き合わせる。
+
+`deploy` の前に流すと、型や制約の決め方にも跳ね返る
+（「締日」に `maxValue 31` を付けてよいのか、そもそも数値なのか）。
+
+### 見るもの
+
+| | 内容 |
+|---|---|
+| 必須 | `required` の列が空 |
+| 重複 | `unique` の列に同じ値 |
+| 選択肢 | `options` にない値 |
+| 数値 | 数値として読めない / `minValue` `maxValue` の外 |
+| 文字数 | `minLength` `maxLength` の外 |
+| 日付 | `DATE` `TIME` `DATETIME` として読めない |
+| 列の過不足 | spec にあって CSV に無い、その逆 |
+
+CSV は **cli-kintone と同じ形式**を読む。見出しはフィールドコード、複数値は
+セル内の改行区切り、テーブルは `*` 列でレコードの先頭行を示す。
+同じファイルをそのまま `cli-kintone record import` に渡せる。
+
+- kintone にも Claude にも接続しない。認証情報が要らない
+- 違反があれば終了コード 2。`--json` で `issues[]` を機械可読に出す
+- 判定に迷う値は通す。**取りこぼすより誤検出のほうが困る**ため
 
 ## スペースへの配置
 
