@@ -8,7 +8,7 @@ import {
   type ViewSpec,
 } from "./appSpec.js";
 import { isOptionFieldType, type FieldSpec } from "./fieldSpec.js";
-import { sectionCodeOf } from "./layout.js";
+import { sectionCodeOf, tableCodeOf } from "./layout.js";
 
 /** kintone のフィールド追加 API に渡す properties。 */
 export type KintoneFieldProperties = Record<string, Record<string, unknown>>;
@@ -40,13 +40,33 @@ export function toKintonePayloads(spec: AppSpec): KintonePayloads {
 /**
  * FieldSpec[] を kintone の properties に変換する。
  * properties のキーはフィールドコードと一致している必要がある。
+ *
+ * `table` の付いたフィールドは、テーブル (SUBTABLE) の `fields` に入れ子で収める。
+ * テーブル自体は**最初の列の位置**に作るので、properties の並びは AppSpec の順序と揃う。
  */
 export function toFieldProperties(fields: readonly FieldSpec[]): KintoneFieldProperties {
   const properties: KintoneFieldProperties = {};
+
   for (const field of fields) {
     const code = resolveFieldCode(field);
-    properties[code] = toFieldProperty(field, code);
+    if (field.table === undefined) {
+      properties[code] = toFieldProperty(field, code);
+      continue;
+    }
+
+    const tableCode = tableCodeOf(field.table);
+    const existing = properties[tableCode];
+    const table =
+      existing ??
+      (properties[tableCode] = {
+        type: "SUBTABLE",
+        code: tableCode,
+        label: field.table,
+        fields: {},
+      });
+    (table["fields"] as KintoneFieldProperties)[code] = toFieldProperty(field, code);
   }
+
   return properties;
 }
 
@@ -74,6 +94,7 @@ function toFieldProperty(field: FieldSpec, code: string): Record<string, unknown
     label: field.label,
   };
 
+  // group / table は fieldsmith の中だけの情報。フィールドの設定としては送らない。
   setIfDefined(property, "required", field.required);
   setIfDefined(property, "unique", field.unique);
   setIfDefined(property, "noLabel", field.noLabel);

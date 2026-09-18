@@ -75,6 +75,8 @@ export interface GroupOptions {
   readonly maxPerRow?: number;
   /** フィールドコードごとの意味のまとまり。指定があれば系統より優先する。 */
   readonly groups?: FieldGroups;
+  /** フィールドコードごとのテーブル名。テーブルの列は横並びの対象にしない。 */
+  readonly tables?: FieldGroups;
 }
 
 /**
@@ -134,7 +136,7 @@ export function groupIntoRows(
   return rows;
 }
 
-export interface RegroupOptions extends GroupOptions {
+export interface BuildRowsOptions extends GroupOptions {
   /**
    * group を実際のグループフィールドにするか。
    * true のときは既存の GROUP をいったん解いてから組み直すので、
@@ -142,6 +144,8 @@ export interface RegroupOptions extends GroupOptions {
    */
   readonly sections?: boolean;
 }
+
+export type RegroupOptions = BuildRowsOptions;
 
 /**
  * kintone から取得した既存のレイアウトを並べ替える。
@@ -162,9 +166,7 @@ export function regroupLayout(
   let pending: LayoutField[] = [];
 
   const flushPending = (): void => {
-    for (const row of groupIntoRows(pending, options)) {
-      result.push({ type: "ROW", fields: row });
-    }
+    result.push(...buildFormRows(pending, options));
     pending = [];
   };
 
@@ -176,13 +178,37 @@ export function regroupLayout(
       }
       continue;
     }
-    // GROUP / SUBTABLE の前後で行の連続は途切れる。
+    // AppSpec が知っているテーブルだけ、列を取り出して元の位置で作り直す。
+    if (row.type === "SUBTABLE" && isManagedTable(row, options.tables)) {
+      pending.push(...subtableColumns(row));
+      continue;
+    }
+    // GROUP と、知らないテーブルの前後で行の連続は途切れる。
     flushPending();
     result.push(row);
   }
   flushPending();
 
   return result;
+}
+
+/** SUBTABLE の行が抱えている列。kintone のレイアウトでは平らな配列で入っている。 */
+function subtableColumns(row: LayoutRow): LayoutField[] {
+  const fields = (row as { fields?: unknown }).fields;
+  return Array.isArray(fields) ? (fields as LayoutField[]) : [];
+}
+
+/**
+ * そのテーブルを fieldsmith が組み立て直してよいか。
+ *
+ * **AppSpec が知らないテーブルには触らない。** 解いてしまうと列が素の行に出てしまい、
+ * レイアウト変更 API に弾かれる。`table` を書いていない spec で更新したときに
+ * 既存のテーブルを壊さないための歯止め。
+ */
+function isManagedTable(row: LayoutRow, tables: FieldGroups | undefined): boolean {
+  const columns = subtableColumns(row);
+  if (columns.length === 0 || tables === undefined) return false;
+  return columns.every((column) => nameOf(tables[column.code]) !== undefined);
 }
 
 /**
@@ -208,6 +234,10 @@ function resectionLayout(layout: readonly LayoutRow[], options: RegroupOptions):
       emptied.push(row);
       continue;
     }
+    if (row.type === "SUBTABLE" && isManagedTable(row, options.tables)) {
+      fields.push(...subtableColumns(row));
+      continue;
+    }
     others.push(row);
   }
 
@@ -216,7 +246,7 @@ function resectionLayout(layout: readonly LayoutRow[], options: RegroupOptions):
     .filter((row) => !managed.has(String((row as { code?: string }).code)))
     .map((row): LayoutRow => ({ ...(row as Record<string, unknown>), type: "GROUP", layout: [] }));
 
-  return [...buildSectionedRows(fields, options), ...others, ...leftovers];
+  return [...buildFormRows(fields, { ...options, sections: true }), ...others, ...leftovers];
 }
 
 /**
@@ -228,6 +258,90 @@ function resectionLayout(layout: readonly LayoutRow[], options: RegroupOptions):
  */
 export function sectionCodeOf(name: string): string {
   return deriveFieldCode(name);
+}
+
+/**
+ * table の値から、テーブルのフィールドコードを導く。
+ *
+ * セクションと同じく、同じ名前からは毎回同じコードが出ることが要。
+ * @see sectionCodeOf
+ */
+export function tableCodeOf(name: string): string {
+  return deriveFieldCode(name);
+}
+
+/** 目標の並びから、テーブルのフィールドコードを集める。 */
+export function tableCodesOf(
+  fields: readonly LayoutField[],
+  tables: FieldGroups = {},
+): Set<string> {
+  const codes = new Set<string>();
+  for (const field of fields) {
+    const name = tables[field.code];
+    if (name !== undefined && name !== "") codes.add(tableCodeOf(name));
+  }
+  return codes;
+}
+
+/**
+ * フィールドの並びを、テーブル・セクション・行に組み立てる。
+ *
+ * 同じ `table` の連なりは 1 つの SUBTABLE に、同じ `group` の連なりは
+ * (`sections` のとき) 1 つの GROUP になる。どちらでもないものは行に並べる。
+ *
+ * テーブルは行の概念を持たないので、列は平らな配列として並べる
+ * (kintone のレイアウトで SUBTABLE が `layout` ではなく `fields` を持つのと同じ)。
+ *
+ * 並び順は変えない。`group` / `table` が離れて書かれていないことは AppSpec の検証で保証済み。
+ */
+export function buildFormRows(
+  fields: readonly LayoutField[],
+  options: BuildRowsOptions = {},
+): LayoutRow[] {
+  const groups = options.groups ?? {};
+  const tables = options.tables ?? {};
+  const result: LayoutRow[] = [];
+
+  let run: LayoutField[] = [];
+  let runKey: string | undefined;
+  let runTable: string | undefined;
+  let runGroup: string | undefined;
+
+  const flush = (): void => {
+    if (run.length === 0) return;
+    if (runTable !== undefined) {
+      result.push({ type: "SUBTABLE", code: tableCodeOf(runTable), fields: [...run] } as LayoutRow);
+    } else {
+      const rows = groupIntoRows(run, options).map(
+        (fields): LayoutRow => ({ type: "ROW", fields }),
+      );
+      if (runGroup === undefined) result.push(...rows);
+      else result.push({ type: "GROUP", code: sectionCodeOf(runGroup), layout: rows } as LayoutRow);
+    }
+    run = [];
+  };
+
+  for (const field of fields) {
+    const table = nameOf(tables[field.code]);
+    const group = options.sections === true ? nameOf(groups[field.code]) : undefined;
+    // テーブルとセクションは同時に付かない (AppSpec の検証で弾いている)。
+    const key = table === undefined ? (group === undefined ? undefined : `g:${group}`) : `t:${table}`;
+
+    if (key !== runKey) {
+      flush();
+      runKey = key;
+      runTable = table;
+      runGroup = group;
+    }
+    run.push(field);
+  }
+  flush();
+
+  return result;
+}
+
+function nameOf(value: string | undefined): string | undefined {
+  return value === undefined || value === "" ? undefined : value;
 }
 
 /**
@@ -243,41 +357,7 @@ export function buildSectionedRows(
   fields: readonly LayoutField[],
   options: GroupOptions = {},
 ): LayoutRow[] {
-  const groups = options.groups ?? {};
-  const result: LayoutRow[] = [];
-
-  let run: LayoutField[] = [];
-  let runGroup: string | undefined;
-
-  const flush = (): void => {
-    if (run.length === 0) return;
-    const rows = groupIntoRows(run, options).map(
-      (fields): LayoutRow => ({ type: "ROW", fields }),
-    );
-    if (runGroup === undefined) {
-      result.push(...rows);
-    } else {
-      result.push({
-        type: "GROUP",
-        code: sectionCodeOf(runGroup),
-        layout: rows,
-      } as LayoutRow);
-    }
-    run = [];
-  };
-
-  for (const field of fields) {
-    const raw = groups[field.code];
-    const group = raw === undefined || raw === "" ? undefined : raw;
-    if (group !== runGroup) {
-      flush();
-      runGroup = group;
-    }
-    run.push(field);
-  }
-  flush();
-
-  return result;
+  return buildFormRows(fields, { ...options, sections: true });
 }
 
 /** 目標の並びから、fieldsmith が面倒を見るセクションのフィールドコードを集める。 */
@@ -308,6 +388,15 @@ export function describeLayout(rows: readonly LayoutRow[], indent = ""): string[
       continue;
     }
     const code = (row as { code?: string }).code ?? row.type;
+
+    // テーブルは行を持たず、列が平らに入っている。GROUP と同じ形に見えるが中身が違う。
+    if (row.type === "SUBTABLE") {
+      lines.push(`${indent}▦ ${code} (テーブル)`);
+      const columns = ((row as { fields?: LayoutField[] }).fields ?? []).map((f) => f.code);
+      if (columns.length > 0) lines.push(`${indent}    ${columns.join(" | ")}`);
+      continue;
+    }
+
     lines.push(`${indent}▼ ${code}`);
     lines.push(...describeLayout(((row as { layout?: LayoutRow[] }).layout ?? []), `${indent}    `));
   }
@@ -344,17 +433,31 @@ function withoutFields(layout: readonly LayoutRow[], remove: ReadonlySet<string>
       result.push({ ...(row as Record<string, unknown>), type: "GROUP", layout: nested } as LayoutRow);
       continue;
     }
+    if (row.type === "SUBTABLE") {
+      const columns = subtableColumns(row);
+      const fields = columns.filter((field) => !remove.has(field.code));
+      // 全部の列を抜いたときだけ行ごと落とす。
+      // もともと空だったものは、こちらの都合で消さずそのまま残す。
+      if (fields.length > 0 || columns.length === 0) {
+        result.push({ ...(row as Record<string, unknown>), type: "SUBTABLE", fields } as LayoutRow);
+      }
+      continue;
+    }
     result.push(row);
   }
   return result;
 }
 
-/** レイアウトに載っているフィールドを、入れ子も含めて集める。 */
+/**
+ * レイアウトに載っているフィールドを、入れ子も含めて集める。
+ * テーブルの列も数える。レイアウト変更 API は**フォーム上のすべてのフィールド**を
+ * 求めるので、ここで取りこぼすと「1 つ足りない」で失敗する。
+ */
 export function collectLayoutFields(layout: readonly LayoutRow[]): LayoutField[] {
   const fields: LayoutField[] = [];
   for (const row of layout) {
     const own = (row as { fields?: LayoutField[] }).fields;
-    if (row.type === "ROW" && Array.isArray(own)) fields.push(...own);
+    if ((row.type === "ROW" || row.type === "SUBTABLE") && Array.isArray(own)) fields.push(...own);
     const nested = (row as { layout?: LayoutRow[] }).layout;
     if (Array.isArray(nested)) fields.push(...collectLayoutFields(nested));
   }
@@ -374,6 +477,8 @@ export interface UpdatedLayoutInput {
   readonly sections?: boolean;
   readonly maxPerRow?: number;
   readonly groups?: FieldGroups;
+  /** フィールドコードごとのテーブル名。 */
+  readonly tables?: FieldGroups;
 }
 
 /**
@@ -413,6 +518,7 @@ export function buildUpdatedLayout(input: UpdatedLayoutInput): LayoutRow[] {
   const groupOptions: GroupOptions = {
     ...(input.maxPerRow === undefined ? {} : { maxPerRow: input.maxPerRow }),
     ...(input.groups === undefined ? {} : { groups: input.groups }),
+    ...(input.tables === undefined ? {} : { tables: input.tables }),
   };
   const placed = input.desired.filter((field) => !orphans.has(field.code));
 
@@ -420,7 +526,12 @@ export function buildUpdatedLayout(input: UpdatedLayoutInput): LayoutRow[] {
     // セクションは fieldsmith が組み立てるので、既存の GROUP はいったん解く。
     // 中身のフィールドは desired に含まれているため、ここで捨てても失われない。
     const managed = sectionCodesOf(placed, input.groups);
-    const others = base.filter((row) => row.type !== "ROW" && row.type !== "GROUP");
+    const others = base.filter(
+      (row) =>
+        row.type !== "ROW" &&
+        row.type !== "GROUP" &&
+        !(row.type === "SUBTABLE" && isManagedTable(row, input.tables)),
+    );
     // 目標から消えたセクションは、空のまま残す。グループフィールド自体は
     // properties に在り、レイアウトから外すと行き場が無くなるため。
     const leftovers = base
@@ -429,14 +540,19 @@ export function buildUpdatedLayout(input: UpdatedLayoutInput): LayoutRow[] {
       )
       .map((row): LayoutRow => ({ ...(row as Record<string, unknown>), type: "GROUP", layout: [] }));
 
-    base = [...buildSectionedRows(placed, groupOptions), ...others, ...leftovers];
+    base = [
+      ...buildFormRows(placed, { ...groupOptions, sections: true }),
+      ...others,
+      ...leftovers,
+    ];
   } else if (input.regroup) {
-    // ROW は目標の並びで作り直す。GROUP / SUBTABLE はそのまま残す。
-    const others = base.filter((row) => row.type !== "ROW");
-    const rows = groupIntoRows(placed, groupOptions).map(
-      (row): LayoutRow => ({ type: "ROW", fields: row }),
+    // ROW と、AppSpec が知っているテーブルは目標の並びで作り直す。
+    // GROUP と知らないテーブルはそのまま残す。
+    const others = base.filter(
+      (row) =>
+        row.type !== "ROW" && !(row.type === "SUBTABLE" && isManagedTable(row, input.tables)),
     );
-    base = [...rows, ...others];
+    base = [...buildFormRows(placed, groupOptions), ...others];
   } else {
     // 手を触れない場合でも、戻ってきたフィールドは行として足す必要がある。
     base = [...base, ...revived.map((field): LayoutRow => ({ type: "ROW", fields: [field] }))];

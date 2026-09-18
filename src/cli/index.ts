@@ -37,18 +37,14 @@ import {
 import {
   AppSpecValidationError,
   fieldGroups,
+  fieldTables,
   parseAppSpec,
   resolveFieldCode,
   resolveLayout,
   type AppSpec,
 } from "../spec/appSpec.js";
 import { describeDiff, diffAppSpec, isEmptyDiff } from "../spec/diff.js";
-import {
-  buildSectionedRows,
-  describeLayout,
-  describeRows,
-  groupIntoRows,
-} from "../spec/layout.js";
+import { buildFormRows, describeLayout } from "../spec/layout.js";
 import { toKintonePayloads } from "../spec/toKintone.js";
 import { backgroundFor, renderIcon } from "../icon/render.js";
 import { EXIT_HINT } from "./exit.js";
@@ -565,13 +561,9 @@ function previewLayout(spec: AppSpec): string[] {
     type: field.type,
     code: resolveFieldCode(field),
   }));
-  const options = { maxPerRow, groups: fieldGroups(spec) };
+  const options = { maxPerRow, groups: fieldGroups(spec), tables: fieldTables(spec) };
 
-  return describeLayout(
-    mode === "sections"
-      ? buildSectionedRows(fields, options)
-      : groupIntoRows(fields, options).map((row) => ({ type: "ROW" as const, fields: row })),
-  );
+  return describeLayout(buildFormRows(fields, { ...options, sections: mode === "sections" }));
 }
 
 interface DeployCommandOptions {
@@ -697,16 +689,12 @@ function printSpecSummary(spec: AppSpec): void {
     say(`一覧 (${spec.views.length} 件): ${spec.views.map((view) => view.name).join(", ")}`);
   }
 
-  const layout = resolveLayout(spec);
-  if (layout.mode === "grouped") {
-    // 実際の並べ替えは kintone から取得したレイアウトに対して行うが、
-    // 結果は同じになるので、ここでは AppSpec から予想を見せる。
-    const rows = groupIntoRows(
-      spec.fields.map((field) => ({ type: field.type, code: resolveFieldCode(field) })),
-      { maxPerRow: layout.maxPerRow, groups: fieldGroups(spec) },
-    );
-    say(`フォームの並び (最大 ${layout.maxPerRow} 列 → ${rows.length} 行):`);
-    for (const line of describeRows(rows)) {
+  // 実際の並べ替えは kintone から取得したレイアウトに対して行うが、
+  // 結果は同じになるので、ここでは AppSpec から予想を見せる。
+  const rows = previewLayout(spec);
+  if (rows.length > 0) {
+    say(`フォームの並び (最大 ${resolveLayout(spec).maxPerRow} 列):`);
+    for (const line of rows) {
       say(`  ${line}`);
     }
   }
