@@ -22,7 +22,7 @@
   },
   "type": "module",
   "bin": {
-    "fieldsmith": "./dist/cli/index.js"
+    "fieldsmith": "dist/cli/index.js"
   },
   "files": [
     "dist",
