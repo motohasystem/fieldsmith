@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
 
 /**
@@ -185,16 +187,52 @@ export function requireOAuth(config: KintoneConfig): OAuthConfig {
 }
 
 /**
- * .env をプロセス環境に読み込む。
+ * 認証情報を書いたファイルの置き場所を、探す順に返す。
+ *
+ * cwd だけを見ていると、案件のディレクトリから叩くたびに
+ * `node --env-file=...` を書くことになる。かといって上へ遡ると、
+ * どれを読んだのか分からなくなる。**明示 → cwd → 設定ディレクトリ**の 3 つに絞る。
+ */
+export function dotEnvCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
+  const configDir =
+    env["FIELDSMITH_CONFIG_DIR"] ??
+    join(env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "fieldsmith");
+
+  return [
+    // 明示指定。どれを読むかを完全に決めたいとき。
+    env["FIELDSMITH_ENV"],
+    // リポジトリ直下で作業しているとき。これまでの挙動。
+    ".env",
+    // どのディレクトリから叩いても効く置き場所。
+    join(configDir, "default.env"),
+  ].filter((path): path is string => path !== undefined && path !== "");
+}
+
+/**
+ * .env をプロセス環境に読み込む。**最初に見つかった 1 つだけを読む。**
+ * 複数を重ねると、どの値がどこから来たのか追えなくなる。
+ *
  * dotenv を足すほどの要件ではないため、`KEY=VALUE` 形式だけを素直に解釈する。
  * すでに設定済みの環境変数は上書きしない (CI での注入を優先するため)。
+ *
+ * 読んだファイルのパスを返す。どれも無ければ null。
  */
-export function loadDotEnv(path = ".env", env: NodeJS.ProcessEnv = process.env): void {
+export function loadDotEnv(
+  paths: readonly string[] = dotEnvCandidates(),
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  for (const path of paths) {
+    if (readDotEnvFile(path, env)) return path;
+  }
+  return null;
+}
+
+function readDotEnvFile(path: string, env: NodeJS.ProcessEnv): boolean {
   let content: string;
   try {
     content = readFileSync(path, "utf-8");
   } catch {
-    return;
+    return false;
   }
 
   for (const line of content.split("\n")) {
@@ -213,4 +251,5 @@ export function loadDotEnv(path = ".env", env: NodeJS.ProcessEnv = process.env):
     }
     env[key] = value;
   }
+  return true;
 }

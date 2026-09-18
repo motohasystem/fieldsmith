@@ -306,3 +306,96 @@ describe("差分の表示", () => {
     expect(lines[0]).toMatch(/kintone では不可/);
   });
 });
+
+/**
+ * 数値の設定の書き方の揺れ。
+ *
+ * kintone は上限・下限・初期値を**文字列で返す**が、spec には数値でも書ける。
+ * 区別すると、中身が同じなのに毎回の差分に出続ける。
+ */
+describe("数値の設定は書き方で差分にしない", () => {
+  const number = (over: Record<string, unknown>) =>
+    parseAppSpec({
+      name: "案件",
+      layout: "stacked",
+      fields: [{ type: "NUMBER", label: "締日", code: "締日", ...over }],
+    });
+  const changes = (current: Record<string, unknown>, desired: Record<string, unknown>) =>
+    diffAppSpec(number(current), number(desired)).updated.flatMap((entry) => entry.changes);
+
+  it("pull した \"0\" と手書きの 0 は同じ", () => {
+    expect(changes({ minValue: "0", maxValue: "31" }, { minValue: 0, maxValue: 31 })).toEqual([]);
+  });
+
+  it("空文字でクリアしたことは差分に出す", () => {
+    // kintone は未設定を空文字で表す。外したいという意思表示は拾う。
+    expect(changes({ maxValue: "31" }, { maxValue: "" })).toEqual([
+      { key: "maxValue", from: "31", to: "" },
+    ]);
+  });
+
+  it("クリアしたあと、同じ spec を流しても差分に出さない", () => {
+    // pull は空文字を落とすので、current 側からは消えている。
+    // ここを区別すると、クリア後ずっと差分が出続ける。
+    expect(changes({}, { maxValue: "" })).toEqual([]);
+  });
+
+  it("キーを消しただけでは何も起きない (現状維持)", () => {
+    // 「書かれていない項目は現状維持」。クリアしたいなら空文字を書く。
+    expect(changes({ maxValue: "31" }, {})).toEqual([]);
+  });
+});
+
+/**
+ * spec から外したのに kintone 側に残る設定。
+ *
+ * 「書かれていない項目は現状維持」という仕様どおりだが、差分に出ないので
+ * 「差分なし＝変わっていない」と読めてしまう。警告として拾う。
+ */
+describe("外したつもりが残る設定を知らせる", () => {
+  const field = (over: Record<string, unknown>) => ({
+    type: "NUMBER",
+    label: "締日",
+    code: "締日",
+    ...over,
+  });
+  const spec = (over: Record<string, unknown>, app: Record<string, unknown> = {}) =>
+    parseAppSpec({ name: "取引先", layout: "stacked", fields: [field(over)], ...app });
+
+  it("キーを消したら、残ることと外し方を伝える", () => {
+    const warnings = diffAppSpec(spec({ maxValue: "31" }), spec({})).warnings;
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/締日: maxValue/);
+    expect(warnings[0]).toMatch(/"31" は据え置かれます/);
+    expect(warnings[0]).toMatch(/"maxValue": "" と書きます/);
+  });
+
+  it("真偽値には false を勧める", () => {
+    expect(diffAppSpec(spec({ required: true }), spec({})).warnings[0]).toMatch(
+      /"required": false と書きます/,
+    );
+  });
+
+  it("実際に外したときは警告しない (差分として出る)", () => {
+    const diff = diffAppSpec(spec({ maxValue: "31" }), spec({ maxValue: "" }));
+    expect(diff.warnings).toEqual([]);
+    expect(diff.updated.flatMap((u) => u.changes)).toEqual([
+      { key: "maxValue", from: "31", to: "" },
+    ]);
+  });
+
+  it("もともと設定が無ければ警告しない", () => {
+    expect(diffAppSpec(spec({}), spec({})).warnings).toEqual([]);
+  });
+
+  it("アプリの説明も対象にする", () => {
+    const current = spec({}, { description: "取引先マスタ" });
+    expect(diffAppSpec(current, spec({})).warnings[0]).toMatch(/\(アプリ\): description/);
+  });
+
+  it("外し方を示せない設定は黙って見送る", () => {
+    // theme を空にする書き方は無いので、勧められることがない。
+    const current = spec({}, { theme: "BLUE" });
+    expect(diffAppSpec(current, spec({})).warnings).toEqual([]);
+  });
+});

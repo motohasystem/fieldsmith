@@ -1,5 +1,6 @@
 import { deriveFieldCode, SUPPORTED_FIELD_TYPES, type SupportedFieldType } from "./fieldSpec.js";
 import { ORPHAN_GROUP_CODE } from "./layout.js";
+import { parseIconFileName } from "../icon/name.js";
 
 /**
  * kintone から取得したアプリ設定を AppSpec に戻す。
@@ -46,8 +47,13 @@ const LAYOUT_FIELD_TYPES = new Set(["GROUP"]);
 
 export interface PullInput {
   readonly name: string;
-  /** getAppSettings の icon。画像アイコンは AppSpec に戻せないため警告に使う。 */
-  readonly icon?: { readonly type?: string } | undefined;
+  /**
+   * getAppSettings の icon。
+   * fieldsmith が付けたファイル名なら、そこから絵文字と背景色を戻せる。
+   */
+  readonly icon?:
+    | { readonly type?: string; readonly file?: { readonly name?: string } | undefined }
+    | undefined;
   readonly description?: string | undefined;
   readonly theme?: string | undefined;
   readonly properties: KintoneProperties;
@@ -74,7 +80,8 @@ export function toAppSpecFromKintone(input: PullInput): PulledSpec {
     if (!SUPPORTED.has(type)) {
       warnings.push(
         `フィールド「${named(property)}」(${type}) は AppSpec で表現できないため除きました。` +
-          " デプロイし直しても、このフィールドは作られません。",
+          " デプロイし直しても、このフィールドは作られません" +
+          " (既存アプリの update では、フォーム上のこのフィールドはそのまま残ります)。",
       );
       return false;
     }
@@ -142,13 +149,23 @@ export function toAppSpecFromKintone(input: PullInput): PulledSpec {
   assign(spec, "description", input.description);
   assign(spec, "theme", input.theme);
 
-  // アイコンは kintone からは画像として返るので、絵文字や頭文字には戻せない。
-  // 既定の組込みアイコンは指定していないのと同じなので、画像のときだけ知らせる。
+  // アイコンは kintone からは画像として返る。fieldsmith が上げたものなら
+  // ファイル名に何を描いたかが残っているので、そこから戻す。
+  // 既定の組込みアイコンは指定していないのと同じなので、画像のときだけ見る。
   if (input.icon?.type === "FILE") {
-    warnings.push(
-      "アプリアイコンに画像が設定されていますが、AppSpec には含められません。" +
-        ' 必要なら icon に絵文字か頭文字を書いてください (例: "icon": "💼")。',
-    );
+    const fileName = input.icon.file?.name;
+    const parsed = fileName === undefined ? null : parseIconFileName(fileName);
+    if (parsed === null) {
+      warnings.push(
+        "アプリアイコンに画像が設定されていますが、AppSpec には含められません。" +
+          ' 必要なら icon に絵文字か頭文字を書いてください (例: "icon": "💼")。',
+      );
+    } else {
+      spec["icon"] = parsed.glyph;
+      // 背景色は既定と同じでも書き出す。書かないと「spec に無い = 現状維持」と
+      // 「既定値と同じ」が見分けられず、書いた人の側で偽の差分になる。
+      spec["iconBackground"] = parsed.background;
+    }
   }
 
   const views = input.views === undefined ? [] : toViewSpecs(input.views, warnings);

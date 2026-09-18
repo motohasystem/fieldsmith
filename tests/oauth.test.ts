@@ -18,6 +18,7 @@ import {
   REQUIRED_SCOPES,
 } from "../src/kintone/oauth.js";
 import { clearToken, isExpired, loadToken, saveToken, tokenFilePath } from "../src/kintone/tokenStore.js";
+import { BASE_URL, setupKintoneMock } from "./kintoneMock.js";
 
 const oauth = {
   kind: "oauth" as const,
@@ -411,3 +412,41 @@ function unauthorizedError(): Error {
     data: { id: "x", code: "GAIA_NO01", message: "認証エラー" },
   });
 }
+
+/**
+ * REST API を直接叩く経路。
+ *
+ * 本文が無いのに Content-Type を送ると kintone が 400 (CB_IL02) を返す。
+ * GET でこの経路を使うと必ず失敗していた。
+ */
+describe("request() のヘッダー", () => {
+  const mockConfig: KintoneConfig = { baseUrl: BASE_URL, auth: oauth };
+
+  const run = async (method: "GET" | "POST", path: string, body?: unknown) => {
+    const { server, mock } = setupKintoneMock();
+    server.listen({ onUnhandledRequest: "error" });
+    const env: NodeJS.ProcessEnv = { FIELDSMITH_CONFIG_DIR: mkdtempSync(join(tmpdir(), "fieldsmith-hdr-")) };
+    saveToken(
+      BASE_URL,
+      { accessToken: "a", refreshToken: "r", expiresAt: Date.now() + 3600_000, scope: REQUIRED_SCOPE },
+      env,
+    );
+    try {
+      await createAuthenticatedKintone({ config: mockConfig, env }).request(method, path, body);
+      return mock;
+    } finally {
+      server.close();
+      rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
+    }
+  };
+
+  it("本文の無い GET には Content-Type を付けない", async () => {
+    const mock = await run("GET", "/k/v1/apps.json?codes[0]=act");
+    expect(mock.headersOf("apps")).not.toHaveProperty("content-type");
+  });
+
+  it("本文のある要求には付ける", async () => {
+    const mock = await run("POST", "/k/v1/preview/app.json", { name: "x" });
+    expect(mock.headersOf("app")?.["content-type"]).toMatch(/application\/json/);
+  });
+});

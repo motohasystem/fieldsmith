@@ -29,7 +29,8 @@ import {
   toViews,
   type KintoneFieldProperties,
 } from "../spec/toKintone.js";
-import { backgroundFor, renderIcon } from "../icon/render.js";
+import { renderIcon } from "../icon/render.js";
+import { backgroundFor, iconFileName } from "../icon/name.js";
 import { apiPathPrefix, KintoneRequestError, type AuthenticatedKintone } from "./client.js";
 
 /** フィールド追加 API 1 回あたりに送るフィールド数の上限。kintone の上限より十分小さく取る。 */
@@ -204,7 +205,9 @@ export async function deployAppSpec(
 
       const icon = renderIcon({ glyph: spec.icon, background });
       const { fileKey } = await kintone.call((client) =>
-        client.file.uploadFile({ file: { name: "app-icon.png", data: icon.png } }),
+        client.file.uploadFile({
+          file: { name: iconFileName(spec.icon!, background), data: icon.png },
+        }),
       );
       report({
         step: "uploadIcon",
@@ -492,6 +495,35 @@ export async function pullApp(
   };
 }
 
+/**
+ * フォームの構造だけを読む。**読み取りしかしない。**
+ *
+ * `pullApp` と違って AppSpec には変換しない。AppSpec が表現しない型や飾りも
+ * そのまま見たいので、kintone が返す形のまま渡す。
+ */
+export async function fetchForm(
+  appId: string,
+  kintone: AuthenticatedKintone,
+  options: { readonly preview?: boolean } = {},
+): Promise<{
+  readonly appName: string;
+  readonly layout: LayoutRow[];
+  readonly properties: KintoneProperties;
+}> {
+  const preview = options.preview === true;
+  const [settings, form, layout] = await Promise.all([
+    kintone.call((client) => client.app.getAppSettings({ app: appId, preview })),
+    kintone.call((client) => client.app.getFormFields({ app: appId, preview })),
+    kintone.call((client) => client.app.getFormLayout({ app: appId, preview })),
+  ]);
+
+  return {
+    appName: settings.name,
+    layout: layout.layout as unknown as LayoutRow[],
+    properties: form.properties as unknown as KintoneProperties,
+  };
+}
+
 /** 削除候補グループの中に居るフィールドコード。 */
 function parkedFieldCodes(layout: readonly LayoutRow[]): string[] {
   const group = layout.find(
@@ -698,7 +730,33 @@ export async function updateApp(
   }
 
   if (diff.app.length > 0) {
-    const settings = toAppSettings(desired);
+    let settings = toAppSettings(desired);
+
+    // アイコンは fileKey を先に取る必要があるので、一般設定を送る前に上げる。
+    const iconChanged = diff.app.some(
+      (change) => change.key === "icon" || change.key === "iconBackground",
+    );
+    if (iconChanged && desired.icon !== undefined) {
+      const background = desired.iconBackground ?? backgroundFor(desired.name);
+      report({
+        step: "uploadIcon",
+        message: `アイコンを生成しています (${desired.icon})`,
+        detail: `背景色 ${background}`,
+      });
+      const icon = renderIcon({ glyph: desired.icon, background });
+      const { fileKey } = await kintone.call((client) =>
+        client.file.uploadFile({
+          file: { name: iconFileName(desired.icon!, background), data: icon.png },
+        }),
+      );
+      report({
+        step: "uploadIcon",
+        message: `アイコンをアップロードしました (${icon.mode === "emoji" ? "絵文字" : "文字"})`,
+        detail: `${Math.round(icon.png.length / 1024)}KB, fileKey=${fileKey}`,
+      });
+      settings = { ...(settings ?? {}), icon: { type: "FILE", file: { fileKey } } };
+    }
+
     if (settings !== null) {
       report({
         step: "updateSettings",

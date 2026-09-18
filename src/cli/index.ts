@@ -15,6 +15,7 @@ import { createAuthenticatedKintone, KintoneRequestError } from "../kintone/clie
 import {
   DeployError,
   deployAppSpec,
+  fetchForm,
   pullApp,
   UnsupportedUpdateError,
   updateApp,
@@ -44,9 +45,15 @@ import {
   type AppSpec,
 } from "../spec/appSpec.js";
 import { describeDiff, diffAppSpec, isEmptyDiff } from "../spec/diff.js";
+import { checkRecords } from "../spec/checkRecords.js";
+import { describeForm } from "../spec/describeForm.js";
+import { LinkSpecValidationError, parseLinkFile } from "../spec/linkSpec.js";
+import { applyLinks, describePlan, LinkValidationError, planLinks } from "../kintone/link.js";
+import { CsvError, parseCsv, toCsvTable } from "../csv.js";
 import { buildFormRows, describeLayout } from "../spec/layout.js";
 import { toKintonePayloads } from "../spec/toKintone.js";
-import { backgroundFor, renderIcon } from "../icon/render.js";
+import { renderIcon } from "../icon/render.js";
+import { backgroundFor } from "../icon/name.js";
 import { EXIT_HINT } from "./exit.js";
 import { emitFailure, emitSuccess, isJsonMode, say, setJsonMode } from "./output.js";
 import { appSpecExample, appSpecJsonSchema, appSpecReference } from "./schema.js";
@@ -175,6 +182,163 @@ program
   });
 
 program
+  .command("link")
+  .description("アプリ間の結線 (ルックアップ・関連レコード一覧) を反映する")
+  .argument("<file>", "結線ファイルの JSON")
+  .option("--dry-run", "kintone を変更せず、何が起きるかを表示する (読み取りには接続する)")
+  .option("--deploy", "運用環境まで反映する (既定は動作テスト環境で止める)")
+  .action(async (filePath: string, options: { dryRun?: boolean; deploy?: boolean }) => {
+    await run("link", async () => {
+      const file = parseLinkFile(readJsonFile(filePath));
+      const config = config_();
+      const kintone = connect(config);
+
+      if (options.dryRun === true) {
+        const plan = await planLinks(file, kintone);
+        say(`--dry-run のため変更しません。${filePath} で起きること:`);
+        say("");
+        for (const line of describePlan(plan)) say(line);
+        reportWarnings(plan.warnings);
+        emitSuccess({ command: "link", dryRun: true, plan });
+        return;
+      }
+
+      const status = startStatusLine("結線を調べています");
+      let result;
+      try {
+        result = await applyLinks(file, kintone, {
+          ...(options.deploy === true ? { deploy: true } : {}),
+          onProgress: (progress) => {
+            status.log(`  ${progress.message}`);
+            if (progress.detail !== undefined && isVerbose()) status.log(`    ${progress.detail}`);
+            status.update(progress.message);
+          },
+        });
+      } finally {
+        status.done();
+      }
+
+      say("");
+      const lines = describePlan(result.plan);
+      if (lines.length > 0) {
+        say("結線の状態:");
+        for (const line of lines) say(line);
+      }
+
+      if (result.apps.length === 0) {
+        say("適用する変更はありません。");
+      } else if (!result.deployed) {
+        say("");
+        say("動作テスト環境まで反映しました。運用環境にはまだ反映していません。");
+        for (const app of result.apps) {
+          say(`  ${config.baseUrl}/k/${app.appId}/ で「変更を確認」してください。`);
+        }
+        say("  問題なければ --deploy を付けて再実行します。");
+      } else {
+        say("");
+        say("✓ 運用環境へ反映しました。");
+        for (const app of result.apps) say(`  ${config.baseUrl}/k/${app.appId}/ (${app.name})`);
+      }
+
+      reportWarnings(result.plan.warnings);
+      emitSuccess({
+        command: "link",
+        deployed: result.deployed,
+        apps: result.apps,
+        plan: result.plan,
+        warnings: result.plan.warnings,
+      });
+    });
+  });
+
+program
+  .command("layout")
+  .description("フォームの構造を表示する (読み取りのみ)")
+  .argument("<appId>", "アプリ ID")
+  .option("--preview", "動作テスト環境を見る (既定は運用環境)")
+  .action(async (appId: string, options: { preview?: boolean }) => {
+    await run("layout", async () => {
+      const kintone = connect(config_());
+      const form = await fetchForm(appId, kintone, {
+        ...(options.preview === true ? { preview: true } : {}),
+      });
+      const lines = describeForm(form.layout, { properties: form.properties });
+
+      say(
+        `アプリ ${appId}「${form.appName}」 ${lines.length === 0 ? "(空)" : `${form.layout.length} 行`}` +
+          `${options.preview === true ? " / 動作テスト環境" : ""}`,
+      );
+      say("");
+      for (const line of lines) say(line);
+
+      emitSuccess({
+        command: "layout",
+        app: { id: appId, name: form.appName },
+        preview: options.preview === true,
+        layout: form.layout,
+      });
+    });
+  });
+
+program
+  .command("check")
+  .description("投入するデータが AppSpec に収まるか確かめる (kintone に接続しない)")
+  .argument("<spec>", "AppSpec の JSON ファイル")
+  .argument("<data>", "投入するレコードの CSV (cli-kintone と同じ形式)")
+  .action(async (specPath: string, dataPath: string) => {
+    await run("check", async () => {
+      const spec = readSpecFile(specPath);
+      const table = toCsvTable(parseCsv(readTextFile(dataPath)));
+      const result = checkRecords(spec, table);
+
+      say(
+        `${result.records.toLocaleString("en-US")} 件 / ${result.columns} 列 を` +
+          ` ${specPath} と突き合わせます`,
+      );
+      say("");
+
+      for (const issue of result.issues) {
+        const mark = issue.severity === "error" ? "✗" : "⚠";
+        const count = issue.count > 0 ? ` (${issue.count.toLocaleString("en-US")} 件)` : "";
+        say(`${mark} ${issue.field}: ${issue.message}${count}`);
+        for (const sample of issue.samples) {
+          const id = sample.id === "" ? "" : ` (${sample.id})`;
+          say(`    ${sample.line} 行目${id} = ${JSON.stringify(sample.value)}`);
+        }
+      }
+
+      if (result.issues.length === 0) {
+        say("✓ 違反はありません。");
+      } else {
+        say("");
+        say(`${result.errors} 件のエラー / ${result.warnings} 件の警告`);
+      }
+
+      if (result.errors > 0) {
+        emitFailure({
+          command: "check",
+          kind: "validation",
+          message: "このまま投入すると失敗します。CSV か AppSpec のどちらかを直してください。",
+          // 人向けには上で出し切っているので、二重に並べない。
+          ...(isJsonMode()
+            ? {
+                issues: result.issues
+                  .filter((issue) => issue.severity === "error")
+                  .map((issue) => ({
+                    path: issue.field,
+                    message: `${issue.message} (${issue.count} 件)`,
+                  })),
+              }
+            : {}),
+        });
+        return;
+      }
+
+      emitSuccess({ command: "check", spec: specPath, data: dataPath, ...result });
+    });
+  });
+
+program
   .command("deploy")
   .description("AppSpec を kintone にデプロイする。同じ AppSpec から何個でも作れる")
   .argument("<spec>", "AppSpec の JSON ファイル")
@@ -268,12 +432,14 @@ program
         }
       }
 
+      reportWarnings([...diff.warnings, ...pulled.warnings]);
+
       emitSuccess({
         command: "diff",
         app: { id: appId, name: pulled.appName },
         hasChanges: !isEmptyDiff(diff),
         diff,
-        warnings: pulled.warnings,
+        warnings: [...diff.warnings, ...pulled.warnings],
       });
     });
   });
@@ -402,6 +568,8 @@ program
         }
       }
 
+      reportWarnings([...result.diff.warnings, ...result.warnings]);
+
       emitSuccess({
         command: "update",
         app: { id: appId, name: result.appName, url: `${config.baseUrl}/k/${appId}/` },
@@ -410,7 +578,7 @@ program
         movedToOrphanGroup: result.pendingOrphans,
         revision: result.revision,
         diff: result.diff,
-        warnings: result.warnings,
+        warnings: [...result.diff.warnings, ...result.warnings],
       });
     });
   });
@@ -667,6 +835,23 @@ function readSpecFile(path: string): AppSpec {
   return parseAppSpec(parsed);
 }
 
+function readJsonFile(path: string): unknown {
+  const content = readTextFile(path);
+  try {
+    return JSON.parse(content);
+  } catch (error) {
+    throw new CliError(`${path} を JSON として解釈できませんでした: ${(error as Error).message}`);
+  }
+}
+
+function readTextFile(path: string): string {
+  try {
+    return readFileSync(path, "utf-8");
+  } catch {
+    throw new CliError(`ファイルを読み込めませんでした: ${path}`);
+  }
+}
+
 function printSpecSummary(spec: AppSpec): void {
   say(`\nアプリ名: ${spec.name}`);
   if (spec.icon !== undefined) {
@@ -700,6 +885,19 @@ function printSpecSummary(spec: AppSpec): void {
   }
 }
 
+/**
+ * 差分にはならないが伝える必要があることを出す。
+ *
+ * これまで `pull` だけが人向けに出していて、`diff` と `update` は
+ * `--json` にしか載せていなかった。人が見る場面でこそ要る情報なので揃える。
+ */
+function reportWarnings(warnings: readonly string[]): void {
+  if (warnings.length === 0) return;
+  say("");
+  say("注意:");
+  for (const warning of warnings) say(`  ⚠ ${warning}`);
+}
+
 async function confirm(question: string): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const answer = await rl.question(`${question} [y/N]: `);
@@ -729,6 +927,9 @@ function readPrompt(argument: string | undefined, filePath: string | undefined) 
 class CliError extends Error {}
 
 function config_(): KintoneConfig {
+  // どのファイルから読んだかは、繋がらないときに真っ先に知りたい。
+  // --verbose の判定はコマンドを解釈したあとでないとできないので、ここで出す。
+  if (loadedEnvFile !== null) trace(`認証情報: ${loadedEnvFile}`);
   return loadKintoneConfig(process.env);
 }
 
@@ -769,6 +970,14 @@ async function run(command: string, action: () => Promise<void>): Promise<void> 
         message: error.message,
         issues: error.issues,
       });
+      return;
+    }
+    if (error instanceof LinkSpecValidationError || error instanceof LinkValidationError) {
+      emitFailure({ command, kind: "validation", message: error.message, issues: error.issues });
+      return;
+    }
+    if (error instanceof CsvError) {
+      emitFailure({ command, kind: "input", message: error.message });
       return;
     }
     if (error instanceof ConfigError) {
@@ -839,5 +1048,9 @@ function apiErrorMessage(error: InstanceType<typeof Anthropic.APIError>): string
   return typeof message === "string" ? message : error.message;
 }
 
-loadDotEnv();
+/**
+ * 認証情報の読み込みは、コマンドを解釈する前に済ませる必要がある。
+ * 読んだファイルは覚えておき、`--verbose` のときに `config_()` から知らせる。
+ */
+const loadedEnvFile = loadDotEnv();
 await program.parseAsync(process.argv);

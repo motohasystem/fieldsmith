@@ -279,3 +279,76 @@ describe("アプリ説明の HTML", () => {
     expect(mock.calls.filter((call) => call.method !== "GET")).toEqual([]);
   });
 });
+
+/**
+ * アイコン。
+ *
+ * kintone は画像として持つので、画像からは何を描いたか読めない。
+ * アップロード時のファイル名に残しておくことで pull が戻せる。
+ * それが成り立って初めて「変わったときだけ上げ直す」ができる。
+ */
+describe("アイコンを変えられる", () => {
+  const withIcon = async (desired: Record<string, unknown>, currentIconFile: string) => {
+    const { server, mock } = setupKintoneMock({
+      existing: {
+        settings: { name: "案件管理", icon: { type: "FILE", file: { name: currentIconFile } } },
+        properties: existingProperties,
+      },
+    });
+    server.listen({ onUnhandledRequest: "error" });
+    const env = withToken();
+    try {
+      const result = await updateApp(
+        "761",
+        parseAppSpec(desired),
+        createAuthenticatedKintone({ config, env }),
+        { polling },
+      );
+      return { result, mock };
+    } finally {
+      server.close();
+      rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
+    }
+  };
+
+  const spec = (over: Record<string, unknown>) => ({
+    name: "案件管理",
+    layout: "stacked",
+    fields: [text("案件名"), text("顧客名")],
+    ...over,
+  });
+
+  it("絵文字を変えたら、上げ直して設定に載せる", async () => {
+    const { result, mock } = await withIcon(
+      spec({ icon: "📦", iconBackground: "#2563eb" }),
+      "fieldsmith-icon-🏢-2563eb.png",
+    );
+
+    expect(result.diff.app).toEqual([{ key: "icon", from: "🏢", to: "📦" }]);
+    expect(mock.callsTo("file")).toHaveLength(1);
+    expect(mock.callsTo("settings")[0]!.body["icon"]).toEqual({
+      type: "FILE",
+      file: { fileKey: "test-file-key" },
+    });
+  });
+
+  it("同じ絵文字なら上げ直さない", async () => {
+    // ここが効かないと、update のたびに画像を上げ続けることになる。
+    const { result, mock } = await withIcon(
+      spec({ icon: "🏢", iconBackground: "#2563eb" }),
+      "fieldsmith-icon-🏢-2563eb.png",
+    );
+
+    expect(result.diff.app).toEqual([]);
+    expect(mock.callsTo("file")).toHaveLength(0);
+  });
+
+  it("背景色だけ変えても上げ直す", async () => {
+    const { mock } = await withIcon(
+      spec({ icon: "🏢", iconBackground: "#059669" }),
+      "fieldsmith-icon-🏢-2563eb.png",
+    );
+
+    expect(mock.callsTo("file")).toHaveLength(1);
+  });
+});

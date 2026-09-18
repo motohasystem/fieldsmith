@@ -214,7 +214,12 @@ async function rawRequest<T>(
 ): Promise<T> {
   const response = await fetchImpl(`${baseUrl}${path}`, {
     method,
-    headers: { ...authHeaders, "Content-Type": "application/json" },
+    headers: {
+      ...authHeaders,
+      // 本文が無いのに Content-Type を送ると kintone が 400 (CB_IL02) を返す。
+      // GET でこの経路を使うと必ず失敗していた。
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(timeoutMs),
   });

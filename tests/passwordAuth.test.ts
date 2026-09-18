@@ -1,9 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ConfigError,
+  dotEnvCandidates,
+  loadDotEnv,
   loadKintoneConfig,
   requireOAuth,
   type KintoneConfig,
@@ -167,5 +169,58 @@ describe("パスワード認証のクライアント", () => {
     // 更新できるトークンが無いので、再試行せず原因を示す。
     expect(error!.message).toMatch(/KINTONE_USERNAME と KINTONE_PASSWORD/);
     expect((error as { cause?: unknown }).cause).toBeInstanceOf(ReauthRequiredError);
+  });
+});
+
+/**
+ * 認証情報の置き場所。
+ *
+ * cwd だけを見ていると、案件のディレクトリから叩くたびに --env-file を書くことになる。
+ * かといって上へ遡ると、どれを読んだのか分からなくなる。
+ */
+describe("認証情報ファイルの探索", () => {
+  it("明示指定 → cwd → 設定ディレクトリ の順に探す", () => {
+    const paths = dotEnvCandidates({
+      FIELDSMITH_ENV: "/tmp/mine.env",
+      FIELDSMITH_CONFIG_DIR: "/tmp/cfg",
+    });
+    expect(paths).toEqual(["/tmp/mine.env", ".env", "/tmp/cfg/default.env"]);
+  });
+
+  it("明示指定が無ければ 2 つ", () => {
+    expect(dotEnvCandidates({ FIELDSMITH_CONFIG_DIR: "/tmp/cfg" })).toEqual([
+      ".env",
+      "/tmp/cfg/default.env",
+    ]);
+  });
+
+  it("最初に見つかった 1 つだけを読む", () => {
+    // 複数を重ねると、どの値がどこから来たのか追えなくなる。
+    const dir = mkdtempSync(join(tmpdir(), "fieldsmith-env-"));
+    writeFileSync(join(dir, "a.env"), "KINTONE_USERNAME=fromA\n");
+    writeFileSync(join(dir, "b.env"), "KINTONE_USERNAME=fromB\nKINTONE_PASSWORD=x\n");
+
+    const env: NodeJS.ProcessEnv = {};
+    const loaded = loadDotEnv([join(dir, "a.env"), join(dir, "b.env")], env);
+
+    expect(loaded).toBe(join(dir, "a.env"));
+    expect(env["KINTONE_USERNAME"]).toBe("fromA");
+    expect(env["KINTONE_PASSWORD"]).toBeUndefined();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("どれも無ければ null", () => {
+    expect(loadDotEnv(["/nonexistent/.env"], {})).toBeNull();
+  });
+
+  it("すでにある環境変数は上書きしない (CI での注入を優先する)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "fieldsmith-env-"));
+    writeFileSync(join(dir, ".env"), "KINTONE_USERNAME=fromFile\n");
+
+    const env: NodeJS.ProcessEnv = { KINTONE_USERNAME: "fromCi" };
+    loadDotEnv([join(dir, ".env")], env);
+
+    expect(env["KINTONE_USERNAME"]).toBe("fromCi");
+    rmSync(dir, { recursive: true, force: true });
   });
 });

@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractEmojiPng, findEmojiFont } from "../src/icon/emojiFont.js";
-import {
-  backgroundFor,
-  ICON_SIZE,
-  initialsFor,
-  isEmoji,
-  renderIcon,
-  stripEmojiModifiers,
-} from "../src/icon/render.js";
+import { ICON_SIZE, initialsFor, isEmoji, renderIcon, stripEmojiModifiers } from "../src/icon/render.js";
+import { backgroundFor, iconFileName, parseIconFileName } from "../src/icon/name.js";
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -140,5 +134,34 @@ describe.skipIf(emojiFont === null)("絵文字アイコン", () => {
 
   it("異体字セレクタ付きの絵文字も描ける", () => {
     expect(renderIcon({ glyph: "✅️", background: "#2563eb" }).mode).toBe("emoji");
+  });
+});
+
+/**
+ * アイコンのファイル名。
+ *
+ * kintone はアプリアイコンを画像として持つので、画像からは何を描いたか読み取れない。
+ * ファイル名に書いておくことで `pull` が戻せるようにしている。
+ */
+describe("アイコンのファイル名", () => {
+  it("描いたものと背景色を名前に残す", () => {
+    expect(iconFileName("🏢", "#4a90d9")).toBe("fieldsmith-icon-🏢-4a90d9.png");
+  });
+
+  it("往復する", () => {
+    for (const [glyph, background] of [
+      ["🏢", "#4a90d9"],
+      ["蔵書", "#2563eb"],
+      ["A", "#059669"],
+    ] as const) {
+      expect(parseIconFileName(iconFileName(glyph, background))).toEqual({ glyph, background });
+    }
+  });
+
+  it("fieldsmith が付けたものでなければ読まない", () => {
+    // 人が画面で差し替えた画像。従来どおり「表現できない」と伝えることになる。
+    for (const name of ["logo.png", "app-icon.png", "fieldsmith-icon-🏢.png", "fieldsmith-icon-🏢-xyz.png"]) {
+      expect(parseIconFileName(name)).toBeNull();
+    }
   });
 });
