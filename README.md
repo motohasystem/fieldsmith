@@ -133,6 +133,7 @@ npm run fieldsmith -- create -f requirements.md
 | `revise <appId> [指示]` | 指示に沿って書き換えた AppSpec を作る（要 Claude API）|
 | `status <appId>` | 運用環境への反映状況を確認する |
 | `login` / `logout` | kintone の OAuth トークンの取得・破棄 |
+| `link <file.json>` | アプリ間の結線（ルックアップ・関連レコード一覧）を反映する |
 | `layout <appId>` | フォームの構造を表示する（読み取りのみ）|
 | `check <spec.json> <data.csv>` | 投入するデータが AppSpec に収まるか確かめる（接続しない）|
 | `schema` | AppSpec の書き方を出力する（AI エージェント向け）|
@@ -411,6 +412,91 @@ fieldsmith の「消さずに削除候補へ移す」が成り立たないので
 
 `plan` / `create` / `revise` はテーブルを作らない（構造化出力の上限のため）。
 `revise` にかけても、元の spec のテーブルは**列の所属ごと引き継ぐ**。
+
+## アプリ間の結線
+
+ルックアップと関連レコード一覧は AppSpec に入れていない（[理由](#ルックアップを対象外にしている理由)）。
+かと言って手で繋ぐしかないのも困るので、**環境に依存する部分だけを別のファイルに閉じ込める**。
+
+```jsonc
+{
+  "links": [
+    {
+      "type": "LOOKUP",
+      "app": "蔵書",                  // 文字列 = アプリコード / 数値 = アプリ ID
+      "code": "本棚ID",               // ← AppSpec が作ったフィールド
+      "relatedApp": "本棚",
+      "relatedKeyField": "棚ID",
+      "fieldMappings": [{ "field": "棚名", "relatedField": "棚名" }]
+    },
+    {
+      "type": "REFERENCE_TABLE",
+      "app": "蔵書",
+      "code": "同じ棚の本",            // ← link が作るフィールド
+      "label": "同じ棚の本",
+      "relatedApp": "本棚",
+      "condition": { "field": "本棚ID", "relatedField": "棚ID" },
+      "displayFields": ["棚ID", "棚名"],
+      "placeAfter": "本棚ID"
+    }
+  ]
+}
+```
+
+```bash
+fieldsmith link links.json --dry-run    # 何が起きるか（kintone を変更しない）
+fieldsmith link links.json              # 動作テスト環境まで
+fieldsmith link links.json --deploy     # 運用環境へ
+```
+
+### ファイルは環境に依存しない
+
+**アプリを文字列で書くとアプリコードとして解決する。** 数値ならアプリ ID。
+アプリコードで書いておけば、**同じファイルが開発環境でも本番でも効く**。
+接続先は他のコマンドと同じく `.env` から来るので、ファイルには書かない。
+
+### 作るものと作らないもの
+
+| | フィールドを作るのは | なぜ |
+|---|---|---|
+| `LOOKUP` | **AppSpec** | 実体は `SINGLE_LINE_TEXT` / `NUMBER` / `LINK` で、**値が入る**。データを持つものは AppSpec が持つ |
+| `REFERENCE_TABLE` | **link** | 値を持たない。AppSpec に無くても失われるデータが無い |
+
+ルックアップにするフィールドが AppSpec に無ければ、`link` はそう言って止まる。
+
+> 既にデータが入っているフィールドにも後から結線できる。実機で確かめてある
+> （値は消えず、コピーは編集画面で取得したときだけ走る）。
+
+### 送るのは書いた項目だけ
+
+**kintone は書かなかった項目を勝手に埋める。** `sort` に `レコード番号 desc`、
+`size` に `5` が入る。これを差分とみなすと、中身が同じなのに毎回「変わった」と
+言い続けることになるので、**書いた項目だけを比べる**。AppSpec の
+「書かれていない項目は現状維持」と同じ扱い。
+
+だから何度流しても結果は同じになる。
+
+### `--dry-run` は読み取りに接続する
+
+`deploy --dry-run` は kintone に一切繋がないが、`link --dry-run` は**読み取りだけ繋ぐ**。
+相手アプリのフィールドが実在するかは、繋がないと確かめようがないため。
+
+送る前に見るもの。
+
+| | どこを読む |
+|---|---|
+| `app` / `relatedApp` が解決できるか | アプリ一覧 |
+| `condition.field` `fieldMappings[].field` `placeAfter` | そのアプリのフォーム |
+| `condition.relatedField` `displayFields` `lookupPickerFields` | **相手アプリ**のフォーム |
+| ルックアップの対象が `SINGLE_LINE_TEXT` / `NUMBER` / `LINK` か | そのアプリのフォーム |
+| キーに**重複禁止**が設定されているか | 相手アプリのフォーム |
+
+最後のは kintone の決まりで、ここで弾かないと反映の途中で落ちる。
+
+### 消さない
+
+ファイルに無い結線が kintone 側にあっても**削除しない**。警告で知らせるだけ。
+フィールドを消さない方針と揃えている。
 
 ## フォームの構造を読む
 

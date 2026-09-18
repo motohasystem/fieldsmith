@@ -47,6 +47,8 @@ import {
 import { describeDiff, diffAppSpec, isEmptyDiff } from "../spec/diff.js";
 import { checkRecords } from "../spec/checkRecords.js";
 import { describeForm } from "../spec/describeForm.js";
+import { LinkSpecValidationError, parseLinkFile } from "../spec/linkSpec.js";
+import { applyLinks, describePlan, LinkValidationError, planLinks } from "../kintone/link.js";
 import { CsvError, parseCsv, toCsvTable } from "../csv.js";
 import { buildFormRows, describeLayout } from "../spec/layout.js";
 import { toKintonePayloads } from "../spec/toKintone.js";
@@ -177,6 +179,76 @@ program
       return;
     }
     process.stdout.write(`${appSpecReference()}\n`);
+  });
+
+program
+  .command("link")
+  .description("アプリ間の結線 (ルックアップ・関連レコード一覧) を反映する")
+  .argument("<file>", "結線ファイルの JSON")
+  .option("--dry-run", "kintone を変更せず、何が起きるかを表示する (読み取りには接続する)")
+  .option("--deploy", "運用環境まで反映する (既定は動作テスト環境で止める)")
+  .action(async (filePath: string, options: { dryRun?: boolean; deploy?: boolean }) => {
+    await run("link", async () => {
+      const file = parseLinkFile(readJsonFile(filePath));
+      const config = config_();
+      const kintone = connect(config);
+
+      if (options.dryRun === true) {
+        const plan = await planLinks(file, kintone);
+        say(`--dry-run のため変更しません。${filePath} で起きること:`);
+        say("");
+        for (const line of describePlan(plan)) say(line);
+        reportWarnings(plan.warnings);
+        emitSuccess({ command: "link", dryRun: true, plan });
+        return;
+      }
+
+      const status = startStatusLine("結線を調べています");
+      let result;
+      try {
+        result = await applyLinks(file, kintone, {
+          ...(options.deploy === true ? { deploy: true } : {}),
+          onProgress: (progress) => {
+            status.log(`  ${progress.message}`);
+            if (progress.detail !== undefined && isVerbose()) status.log(`    ${progress.detail}`);
+            status.update(progress.message);
+          },
+        });
+      } finally {
+        status.done();
+      }
+
+      say("");
+      const lines = describePlan(result.plan);
+      if (lines.length > 0) {
+        say("結線の状態:");
+        for (const line of lines) say(line);
+      }
+
+      if (result.apps.length === 0) {
+        say("適用する変更はありません。");
+      } else if (!result.deployed) {
+        say("");
+        say("動作テスト環境まで反映しました。運用環境にはまだ反映していません。");
+        for (const app of result.apps) {
+          say(`  ${config.baseUrl}/k/${app.appId}/ で「変更を確認」してください。`);
+        }
+        say("  問題なければ --deploy を付けて再実行します。");
+      } else {
+        say("");
+        say("✓ 運用環境へ反映しました。");
+        for (const app of result.apps) say(`  ${config.baseUrl}/k/${app.appId}/ (${app.name})`);
+      }
+
+      reportWarnings(result.plan.warnings);
+      emitSuccess({
+        command: "link",
+        deployed: result.deployed,
+        apps: result.apps,
+        plan: result.plan,
+        warnings: result.plan.warnings,
+      });
+    });
   });
 
 program
@@ -763,6 +835,15 @@ function readSpecFile(path: string): AppSpec {
   return parseAppSpec(parsed);
 }
 
+function readJsonFile(path: string): unknown {
+  const content = readTextFile(path);
+  try {
+    return JSON.parse(content);
+  } catch (error) {
+    throw new CliError(`${path} を JSON として解釈できませんでした: ${(error as Error).message}`);
+  }
+}
+
 function readTextFile(path: string): string {
   try {
     return readFileSync(path, "utf-8");
@@ -889,6 +970,10 @@ async function run(command: string, action: () => Promise<void>): Promise<void> 
         message: error.message,
         issues: error.issues,
       });
+      return;
+    }
+    if (error instanceof LinkSpecValidationError || error instanceof LinkValidationError) {
+      emitFailure({ command, kind: "validation", message: error.message, issues: error.issues });
       return;
     }
     if (error instanceof CsvError) {

@@ -173,6 +173,22 @@ $F update 761 案件管理-761.json         # 4. 動作テスト環境まで適�
 $F update 761 案件管理-761.json --deploy   # 5. 確認が取れたら運用環境へ反映する
 ```
 
+### アプリ間の結線は `link`
+
+ルックアップと関連レコード一覧は AppSpec に**書けない**（相手アプリに依存するため）。結線ファイルを別に作って `link` で反映する。
+
+```bash
+npx fieldsmith link links.json --dry-run   # 何が起きるか
+npx fieldsmith link links.json             # 動作テスト環境まで
+npx fieldsmith link links.json --deploy    # 運用環境へ
+```
+
+- **ルックアップにするフィールドは AppSpec で作る。** `link` は設定を足すだけで、フィールドは作らない
+- 関連レコード一覧は `link` が作る（値を持たないので AppSpec に無くてよい）
+- アプリは**文字列ならアプリコード、数値ならアプリ ID**。アプリコードで書けば環境に依存しない
+- 書かなかった項目は現状維持。`sort` や `size` を書かなければ kintone の既定のまま
+- `update` と同じく既定は動作テスト環境まで。運用環境へは `--deploy`
+
 ### フォームの並びを知りたいときは `layout`
 
 「このフィールドの近くに置きたい」「いまどう並んでいるか」を聞かれたら `pull` ではなく `layout`。**読み取りのみ。**
