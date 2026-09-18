@@ -1,6 +1,6 @@
 {
   "name": "fieldsmith",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AppSpec (JSON) から kintone アプリを何度でも作る CLI。AppSpec は要件の文章からも作れる",
   "keywords": [
     "kintone",
