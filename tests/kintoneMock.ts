@@ -181,6 +181,15 @@ export function setupKintoneMock(options: KintoneMockOptions = {}) {
       if (failure) return failure;
       return HttpResponse.json(body["revert"] === true ? {} : {});
     }),
+    // アプリ一覧。アプリコードからアプリ ID を引くのに使う。
+    http.get(`${BASE_URL}/k/v1/apps.json`, ({ request }) => {
+      calls.push({ path: "apps", method: "GET", body: {}, headers: headersOf(request) });
+      const url = new URL(request.url);
+      const code = url.searchParams.get("codes[0]");
+      return HttpResponse.json({
+        apps: code === null ? [] : [{ appId: "42", code, name: `アプリ ${code}` }],
+      });
+    }),
     // OAuth では使えない API。呼ばれてしまったことを検知するために置いている。
     http.get(`${BASE_URL}/k/v1/space.json`, () => {
       calls.push({ path: "spaceInfo", method: "GET", body: {}, headers: {} });
