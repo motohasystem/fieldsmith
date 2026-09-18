@@ -75,6 +75,20 @@ export function toAppSpecFromKintone(input: PullInput): PulledSpec {
         );
         return false;
       }
+      // ルックアップは独立した型ではなく、SINGLE_LINE_TEXT / NUMBER / LINK に
+      // 設定を付けたもの。型の検査だけでは素通りしてしまう。
+      //
+      // フィールドごと落とすのではなく、ただの文字列などとして残す。そこには
+      // 実際にデータが入っているし、AppSpec の側でもアプリ間の参照は
+      // 「人が kintone 上で繋ぐ」前提にしているため。
+      // @see README.md「ルックアップを対象外にしている理由」
+      if (property["lookup"] !== undefined) {
+        warnings.push(
+          `フィールド「${property["label"] ?? property["code"]}」のルックアップ設定は` +
+            " AppSpec に含められないため落としました。フィールド自体は残しています" +
+            " (この spec をデプロイすると、ルックアップではないフィールドになります)。",
+        );
+      }
       return true;
     })
     // レイアウト上の位置で並べる。レイアウトに無いものは末尾へ。

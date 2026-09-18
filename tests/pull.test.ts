@@ -149,6 +149,57 @@ describe("表現できないものを黙って捨てない", () => {
     expect(warnings.join()).toMatch(/作られません/);
   });
 
+  it("関連レコード一覧は警告に残す", () => {
+    const { spec, warnings } = toAppSpecFromKintone(
+      base({
+        properties: {
+          案件名: { type: "SINGLE_LINE_TEXT", code: "案件名", label: "案件名" },
+          関連貸出: {
+            type: "REFERENCE_TABLE",
+            code: "関連貸出",
+            label: "関連貸出",
+            referenceTable: {
+              relatedApp: { app: "13", code: "" },
+              condition: { field: "本棚ID", relatedField: "本棚ID" },
+              displayFields: ["貸出日"],
+            },
+          },
+        },
+      }),
+    );
+
+    // 値を持たない表示専用のフィールドなので、落としてもデータは失われない。
+    expect(spec["fields"]).toHaveLength(1);
+    expect(warnings.join()).toMatch(/関連貸出.*REFERENCE_TABLE/);
+  });
+
+  it("ルックアップは、フィールドを残したうえで設定を落としたと知らせる", () => {
+    // ルックアップは独立した型ではなく SINGLE_LINE_TEXT / NUMBER / LINK に
+    // 設定を付けたもの。型だけ見ていると素通りして、黙って設定が消える。
+    const { spec, warnings } = toAppSpecFromKintone(
+      base({
+        properties: {
+          本棚ID: {
+            type: "SINGLE_LINE_TEXT",
+            code: "本棚ID",
+            label: "本棚ID",
+            lookup: {
+              relatedApp: { app: "12", code: "HONDANA" },
+              relatedKeyField: "棚ID",
+              fieldMappings: [{ field: "棚名", relatedField: "棚名" }],
+            },
+          },
+        },
+      }),
+    );
+
+    // データが入っているフィールドなので、落とさずただの文字列として残す。
+    expect(spec["fields"]).toEqual([
+      { type: "SINGLE_LINE_TEXT", code: "本棚ID", label: "本棚ID" },
+    ]);
+    expect(warnings.join()).toMatch(/本棚ID.*ルックアップ設定/);
+  });
+
   it("未対応の一覧形式も警告に残す", () => {
     const { warnings } = toAppSpecFromKintone(
       base({
