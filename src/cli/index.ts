@@ -60,6 +60,20 @@ import { appSpecExample, appSpecJsonSchema, appSpecReference } from "./schema.js
 import { startStatusLine, tailLine } from "./progress.js";
 import { LARGE_PROMPT_CHARS, PromptInputError, resolvePrompt } from "./promptInput.js";
 
+/**
+ * バージョンは package.json から読む。手で書くとリリースのたびにずれる (0.2.0 で 0.1.0 と出ていた)。
+ * src/cli/index.ts からも dist/cli/index.js からも ../../package.json に当たる。
+ */
+function packageVersion(): string {
+  try {
+    const raw = readFileSync(new URL("../../package.json", import.meta.url), "utf-8");
+    const version = (JSON.parse(raw) as { version?: unknown }).version;
+    return typeof version === "string" ? version : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 const program = new Command();
 
 program
@@ -67,7 +81,7 @@ program
   .description(
     "AppSpec (JSON) から kintone アプリを何度でも作る CLI。AppSpec は要件の文章からも作れる。",
   )
-  .version("0.1.0")
+  .version(packageVersion())
   .option("-v, --verbose", "何をしているかを詳しく表示する (思考の要約、API 呼び出し、revision の遷移)")
   .option("--json", "結果を JSON で stdout に出す。人間向けの表示は stderr に回る")
   .hook("preAction", () => setJsonMode(program.opts()["json"] === true));
