@@ -38,6 +38,8 @@
     "test:watch": "vitest",
     "fieldsmith": "tsx src/cli/index.ts",
     "e2e:manual": "tsx scripts/e2e-manual.ts",
+    "sync-plugin-version": "node scripts/sync-plugin-version.mjs",
+    "version": "node scripts/sync-plugin-version.mjs && git add .claude-plugin",
     "prepublishOnly": "npm run build",
     "prepare": "npm run build"
   },
