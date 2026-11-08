@@ -123,6 +123,7 @@ function staleSettings(
   current: Record<string, unknown>,
   desired: Record<string, unknown>,
   keep?: ReadonlySet<string>,
+  defaults: Readonly<Record<string, readonly unknown[]>> = {},
 ): string[] {
   const warnings: string[] = [];
 
@@ -131,6 +132,8 @@ function staleSettings(
     const from = current[key];
     if (from === undefined || unset(from)) continue;
     if (desired[key] !== undefined) continue;
+    // kintone が自分で埋めた既定値は、spec から「外した」ものではない。
+    if (isKintoneDefault(from, defaults[key])) continue;
 
     const cleared = typeof from === "boolean" ? "false" : '""';
     warnings.push(
@@ -162,6 +165,33 @@ const FIELD_KEYS_TO_KEEP: ReadonlySet<string> = new Set([
 /** アプリ全体のうち、外し方を示せる設定。 */
 const APP_KEYS_TO_KEEP: ReadonlySet<string> = new Set(["description"]);
 
+/**
+ * kintone が**書かなくても埋める**値。spec に一度も書いていないのに
+ * 「spec から外しました」と警告されるのを防ぐ。
+ *
+ * 値が既定値と一致するときだけ黙る。既定値から変えてあるなら、従来どおり警告する。
+ * 比較は文字列にそろえて行う (API は数値を文字列で返したり返さなかったりする)。
+ */
+const FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<string, readonly unknown[]>>>> = {
+  // ラジオボタンは作った時点で必須になる (未選択の状態を持たない)。
+  RADIO_BUTTON: { required: [true] },
+  // API で作ると 50、画面で作ると 150 が入る。
+  FILE: { thumbnailSize: ["50", "150"] },
+};
+
+/** 一般設定のうち、アプリを作ったときに kintone が入れる値。 */
+const SETTINGS_DEFAULTS: Readonly<Record<string, readonly unknown[]>> = {
+  enableThumbnails: [true],
+  enableComments: [true],
+  enableDuplicateRecord: [true],
+  enableInlineRecordEditing: [true],
+  firstMonthOfFiscalYear: [4],
+};
+
+function isKintoneDefault(value: unknown, defaults: readonly unknown[] | undefined): boolean {
+  return defaults !== undefined && defaults.some((d) => String(d) === String(value));
+}
+
 const TABLE_CHANGE_LABEL: Record<TableChange["kind"], string> = {
   added: "列を追加",
   updated: "列の設定を変更",
@@ -174,6 +204,11 @@ export interface AppDiff {
   readonly updated: readonly FieldUpdate[];
   readonly retyped: readonly FieldRetype[];
   readonly orphaned: readonly FieldOrphan[];
+  /**
+   * spec に無いが、**既に削除候補グループへ移してある**フィールド。
+   * もう動かさないので差分には数えない (数えると「差分なし」に永遠にならない)。
+   */
+  readonly parked: readonly FieldOrphan[];
   /** テーブルに関わる変化。update では適用できない。 */
   readonly tableChanges: readonly TableChange[];
   /**
@@ -209,14 +244,24 @@ export function hasWork(diff: AppDiff): boolean {
   return !isEmptyDiff(diff);
 }
 
-export function diffAppSpec(current: AppSpec, desired: AppSpec): AppDiff {
+export interface DiffOptions {
+  /**
+   * 既に削除候補グループに入っているフィールドコード (pull の `parkedCodes`)。
+   * AppSpec には所属が残らないので、呼び出し側がレイアウトから集めて渡す。
+   */
+  readonly parkedCodes?: readonly string[];
+}
+
+export function diffAppSpec(current: AppSpec, desired: AppSpec, options: DiffOptions = {}): AppDiff {
   const currentFields = byCode(current.fields);
   const desiredFields = byCode(desired.fields);
+  const parkedCodes = new Set(options.parkedCodes ?? []);
 
   const added: FieldAddition[] = [];
   const updated: FieldUpdate[] = [];
   const retyped: FieldRetype[] = [];
   const orphaned: FieldOrphan[] = [];
+  const parked: FieldOrphan[] = [];
   const warnings: string[] = [];
 
   for (const [code, field] of desiredFields) {
@@ -234,7 +279,9 @@ export function diffAppSpec(current: AppSpec, desired: AppSpec): AppDiff {
     if (changes.length > 0) {
       updated.push({ code, field, changes });
     }
-    warnings.push(...staleSettings(code, existing, field, FIELD_KEYS_TO_KEEP));
+    warnings.push(
+      ...staleSettings(code, existing, field, FIELD_KEYS_TO_KEEP, FIELD_DEFAULTS[field.type]),
+    );
   }
 
   warnings.push(
@@ -243,12 +290,15 @@ export function diffAppSpec(current: AppSpec, desired: AppSpec): AppDiff {
       "(アプリ設定)",
       (current.settings ?? {}) as Record<string, unknown>,
       (desired.settings ?? {}) as Record<string, unknown>,
+      undefined,
+      SETTINGS_DEFAULTS,
     ),
   );
 
   for (const [code, field] of currentFields) {
     if (!desiredFields.has(code)) {
-      orphaned.push({ code, type: field.type, label: field.label });
+      const entry = { code, type: field.type, label: field.label };
+      (parkedCodes.has(code) ? parked : orphaned).push(entry);
     }
   }
 
@@ -257,6 +307,7 @@ export function diffAppSpec(current: AppSpec, desired: AppSpec): AppDiff {
     updated,
     retyped,
     orphaned,
+    parked,
     tableChanges: compareTables(current, desired, { added, updated, orphaned }),
     warnings,
     app: compareAppSettings(current, desired),
@@ -441,6 +492,9 @@ function compareViews(current: readonly ViewSpec[], desired: readonly ViewSpec[]
       if (key === "name") continue;
       const from = (existing as Record<string, unknown>)[key];
       const to = (view as Record<string, unknown>)[key];
+      // 未指定は現状維持 (フィールド・アプリ設定と同じ)。kintone は書かなかった sort を
+      // 「レコード番号 desc」で勝手に埋めるので、これが無いと永遠に差分が出る。
+      if (to === undefined) continue;
       if (!same(from, to)) changes.push({ key, from, to });
     }
     if (changes.length > 0) updated.push({ name, view, changes });

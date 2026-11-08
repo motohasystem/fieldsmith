@@ -247,6 +247,8 @@ const 本棚 = {
   properties: {
     棚ID: { type: "SINGLE_LINE_TEXT", code: "棚ID", unique: true },
     棚名: { type: "SINGLE_LINE_TEXT", code: "棚名" },
+    // kintone は RECORD_NUMBER に unique を返さない
+    レコード番号: { type: "RECORD_NUMBER", code: "レコード番号" },
   },
 };
 
@@ -294,6 +296,11 @@ describe("実物と突き合わせる", () => {
   it("キーに重複禁止が無ければ弾く", async () => {
     // kintone の決まり。ここで弾かないとデプロイの途中で落ちる。
     expect((await failure([lookup({ relatedKeyField: "棚名" })])).join()).toMatch(/重複禁止/);
+  });
+
+  it("レコード番号はキーにできる (重複禁止の設定を持たないが常に一意)", async () => {
+    const result = await plan([lookup({ relatedKeyField: "レコード番号" })]);
+    expect(result.entries[0]).toMatchObject({ action: "update" });
   });
 
   it("相手アプリに無いフィールドを弾く", async () => {

@@ -399,3 +399,90 @@ describe("外したつもりが残る設定を知らせる", () => {
     expect(diffAppSpec(current, spec({})).warnings).toEqual([]);
   });
 });
+
+describe("kintone が自分で埋めた既定値は「外した」と言わない", () => {
+  const radio = (over: Record<string, unknown> = {}) => ({
+    type: "RADIO_BUTTON",
+    label: "状態",
+    code: "状態",
+    options: ["有効", "休止"],
+    ...over,
+  });
+
+  it("ラジオボタンの required: true (作った時点で必須になる)", () => {
+    const diff = diffAppSpec(spec([radio({ required: true })]), spec([radio()]));
+    expect(diff.warnings).toEqual([]);
+  });
+
+  it("ラジオボタン以外の required: true は従来どおり知らせる", () => {
+    const diff = diffAppSpec(spec([text("件名", { required: true })]), spec([text("件名")]));
+    expect(diff.warnings.join()).toMatch(/required を spec から外しました/);
+  });
+
+  it("添付ファイルの thumbnailSize (API で作ると 50、画面だと 150)", () => {
+    const file = (over: Record<string, unknown> = {}) => ({
+      type: "FILE",
+      label: "添付",
+      code: "添付",
+      ...over,
+    });
+    expect(diffAppSpec(spec([file({ thumbnailSize: "50" })]), spec([file()])).warnings).toEqual([]);
+    expect(diffAppSpec(spec([file({ thumbnailSize: "150" })]), spec([file()])).warnings).toEqual([]);
+    // 既定値から変えてあるなら知らせる
+    expect(
+      diffAppSpec(spec([file({ thumbnailSize: "500" })]), spec([file()])).warnings.join(),
+    ).toMatch(/thumbnailSize/);
+  });
+
+  it("一般設定の enableThumbnails / firstMonthOfFiscalYear", () => {
+    const current = spec([text("件名")], {
+      settings: { enableThumbnails: true, firstMonthOfFiscalYear: 4 },
+    });
+    expect(diffAppSpec(current, spec([text("件名")])).warnings).toEqual([]);
+  });
+
+  it("一般設定でも既定値から変えてあるなら知らせる", () => {
+    const current = spec([text("件名")], { settings: { firstMonthOfFiscalYear: 10 } });
+    expect(diffAppSpec(current, spec([text("件名")])).warnings.join()).toMatch(
+      /firstMonthOfFiscalYear/,
+    );
+  });
+});
+
+describe("一覧も「未指定は現状維持」", () => {
+  it("spec に sort を書いていなければ、kintone 側の sort は差分にしない", () => {
+    // kintone は書かなかった sort を「レコード番号 desc」で埋める
+    const calendar = { name: "予定", type: "CALENDAR", date: "日付", title: "件名" };
+    const fields = [text("件名"), { type: "DATE", label: "日付", code: "日付" }];
+    const current = spec(fields, { views: [{ ...calendar, sort: "レコード番号 desc" }] });
+    const diff = diffAppSpec(current, spec(fields, { views: [calendar] }));
+    expect(diff.views.updated).toEqual([]);
+    expect(isEmptyDiff(diff)).toBe(true);
+  });
+
+  it("書いた項目が違えば差分にする", () => {
+    const fields = [text("件名")];
+    const current = spec(fields, { views: [{ name: "一覧", sort: "件名 asc" }] });
+    const diff = diffAppSpec(current, spec(fields, { views: [{ name: "一覧", sort: "件名 desc" }] }));
+    expect(diff.views.updated[0]?.changes).toEqual([
+      { key: "sort", from: "件名 asc", to: "件名 desc" },
+    ]);
+  });
+});
+
+describe("既に削除候補にいるフィールド", () => {
+  it("parkedCodes に入っていれば差分に数えない", () => {
+    const current = spec([text("案件名"), text("入数")]);
+    const desired = spec([text("案件名")]);
+    const diff = diffAppSpec(current, desired, { parkedCodes: ["入数"] });
+    expect(diff.orphaned).toEqual([]);
+    expect(diff.parked.map((o) => o.code)).toEqual(["入数"]);
+    expect(isEmptyDiff(diff)).toBe(true);
+    expect(describeDiff(diff).join("\n")).not.toMatch(/入数/);
+  });
+
+  it("まだ移していないものは従来どおり削除候補へ", () => {
+    const diff = diffAppSpec(spec([text("案件名"), text("入数")]), spec([text("案件名")]));
+    expect(diff.orphaned.map((o) => o.code)).toEqual(["入数"]);
+  });
+});
