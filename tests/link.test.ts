@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { KintoneConfig } from "../src/config.js";
 import { createAuthenticatedKintone } from "../src/kintone/client.js";
 import {
+  applyLinks,
   differences,
   moveAfter,
   needsMove,
@@ -19,7 +20,7 @@ import { REQUIRED_SCOPE } from "../src/kintone/oauth.js";
 import { saveToken } from "../src/kintone/tokenStore.js";
 import { LinkSpecValidationError, parseLinkFile } from "../src/spec/linkSpec.js";
 import type { LayoutField, LayoutRow } from "../src/spec/layout.js";
-import { BASE_URL } from "./kintoneMock.js";
+import { BASE_URL, noSleep } from "./kintoneMock.js";
 
 /**
  * アプリ間の結線。
@@ -330,5 +331,88 @@ describe("実物と突き合わせる", () => {
     const result = await plan([lookup()], apps);
     expect(result.warnings.join()).toMatch(/"古い関連" は結線ファイルにありませんが/);
     expect(result.warnings.join()).toMatch(/消しません/);
+  });
+});
+
+/* ------------------------------ 反映 (#10) ------------------------------ */
+
+describe("動作テスト環境に残っている変更 (#10)", () => {
+  // 「link → 画面で確認 → link --deploy」の 2 回目。結線は動作テスト環境に入っているので差分は空になる。
+  const linked = {
+    ...蔵書,
+    properties: {
+      ...蔵書.properties,
+      同じ棚の本: {
+        type: "REFERENCE_TABLE",
+        code: "同じ棚の本",
+        label: "同じ棚の本",
+        referenceTable: toReferenceTable(parseLinkFile({ links: [reference()] }).links[0] as never, "776"),
+      },
+    },
+  };
+
+  async function apply(previewRevisions: Record<string, string>, deploy: boolean) {
+    const server = mockApps({ "777": linked, "776": 本棚 });
+    const deployed: unknown[] = [];
+    const settings = (preview: boolean) => ({ request }: { request: Request }) => {
+      const app = new URL(request.url).searchParams.get("app") ?? "";
+      const name = app === "777" ? linked.name : 本棚.name;
+      return HttpResponse.json({ name, revision: preview ? (previewRevisions[app] ?? "1") : "1" });
+    };
+    server.use(
+      http.get(`${BASE_URL}/k/v1/preview/app/settings.json`, settings(true)),
+      http.get(`${BASE_URL}/k/v1/app/settings.json`, settings(false)),
+      http.post(`${BASE_URL}/k/v1/preview/app/deploy.json`, async ({ request }) => {
+        deployed.push(await request.json());
+        return HttpResponse.json({});
+      }),
+      http.get(`${BASE_URL}/k/v1/preview/app/deploy.json`, ({ request }) =>
+        HttpResponse.json({
+          apps: [{ app: new URL(request.url).searchParams.get("apps[0]"), status: "SUCCESS" }],
+        }),
+      ),
+    );
+    server.listen({ onUnhandledRequest: "error" });
+    const env = withToken();
+    try {
+      const result = await applyLinks(
+        parseLinkFile({ links: [reference()] }),
+        createAuthenticatedKintone({ config, env }),
+        { deploy, polling: { initialDelayMs: 0, maxDelayMs: 0, sleep: noSleep } },
+      );
+      return { result, deployed };
+    } finally {
+      server.close();
+      rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
+    }
+  }
+
+  it("前提: 結線は揃っている", async () => {
+    const { result } = await apply({}, false);
+    expect(result.plan.entries[0]).toMatchObject({ action: "unchanged", moves: false });
+  });
+
+  it("差分が無くても、--deploy なら残っている変更を運用環境へ反映する", async () => {
+    const { result, deployed } = await apply({ "777": "5" }, true);
+
+    expect(deployed).toEqual([{ apps: [{ app: "777", revision: "5" }] }]);
+    expect(result.deployed).toBe(true);
+    expect(result.apps).toEqual([{ appId: "777", name: 蔵書.name, revision: "5", carriedOver: true }]);
+  });
+
+  it("--deploy なしなら反映せず、残っていることだけを知らせる", async () => {
+    const { result, deployed } = await apply({ "777": "5" }, false);
+
+    expect(deployed).toEqual([]);
+    expect(result.apps).toEqual([]);
+    expect(result.pendingApps).toEqual([{ appId: "777", name: 蔵書.name, revision: "5", carriedOver: true }]);
+  });
+
+  it("両環境が揃っていれば、--deploy でも何もしない", async () => {
+    const { result, deployed } = await apply({}, true);
+
+    expect(deployed).toEqual([]);
+    expect(result.apps).toEqual([]);
+    expect(result.pendingApps).toEqual([]);
   });
 });

@@ -27,6 +27,11 @@ export interface KintoneMockOptions {
   readonly guestSpaceId?: number | string;
   /** getDeployStatus が順に返すステータス。最後の値を以降も返し続ける。 */
   readonly deployStatuses?: readonly ("PROCESSING" | "SUCCESS" | "FAIL" | "CANCEL")[];
+  /**
+   * 動作テスト環境のアプリ設定が返す revision。運用環境は常に "1" を返す。
+   * "1" 以外にすると、運用環境へ未反映の変更が動作テスト環境に残っている状態になる。
+   */
+  readonly previewRevision?: string;
   /** 指定したパスで一度だけ返すエラー。 */
   readonly failOnce?: { readonly path: string; readonly status: number; readonly code?: string };
 }
@@ -91,7 +96,7 @@ export function setupKintoneMock(options: KintoneMockOptions = {}) {
         description: "",
         theme: "WHITE",
         titleField: { selectionMode: "AUTO" },
-        revision: "1",
+        revision: options.previewRevision ?? "1",
         ...(options.existing?.settings ?? {}),
       });
     }),

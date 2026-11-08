@@ -46,9 +46,14 @@ const existingProperties = {
 const polling = { initialDelayMs: 0, maxDelayMs: 0, sleep: noSleep };
 
 /** モックを立てて update を実行し、飛んだ呼び出しを返す。 */
-async function run(desiredSpec: unknown, options: { deploy?: boolean } = {}) {
+async function run(
+  desiredSpec: unknown,
+  options: { deploy?: boolean } = {},
+  mockOptions: { previewRevision?: string } = {},
+) {
   const { server, mock } = setupKintoneMock({
     existing: { settings: { name: "案件管理" }, properties: existingProperties },
+    ...mockOptions,
   });
   server.listen({ onUnhandledRequest: "error" });
   const env = withToken();
@@ -97,6 +102,39 @@ describe("既定では運用環境へ反映しない", () => {
     expect(result.deployed).toBe(true);
     expect(mock.callsTo("deploy")).toHaveLength(1);
     expect(mock.callsTo("deployStatus").length).toBeGreaterThan(0);
+  });
+});
+
+describe("動作テスト環境に残っている変更 (#10)", () => {
+  // 「update → 画面で確認 → update --deploy」の 2 回目は、動作テスト環境と比べるので差分が空になる。
+  const same = { name: "案件管理", layout: "stacked", fields: [text("案件名"), text("顧客名")] };
+
+  it("差分が無くても、--deploy なら残っている変更を運用環境へ反映する", async () => {
+    const { result, mock } = await run(same, { deploy: true }, { previewRevision: "5" });
+
+    expect(result.deployed).toBe(true);
+    expect(result.pendingInPreview).toBe(true);
+    // フォームには触らない。
+    expect(mock.callsTo("fields")).toHaveLength(0);
+    expect(mock.callsTo("updateFields")).toHaveLength(0);
+    expect(mock.callsTo("deploy")[0]!.body["apps"]).toEqual([{ app: "761", revision: "5" }]);
+    expect(mock.callsTo("deployStatus").length).toBeGreaterThan(0);
+  });
+
+  it("--deploy なしなら反映せず、残っていることだけを知らせる", async () => {
+    const { result, mock } = await run(same, {}, { previewRevision: "5" });
+
+    expect(result.deployed).toBe(false);
+    expect(result.pendingInPreview).toBe(true);
+    expect(mock.callsTo("deploy")).toHaveLength(0);
+  });
+
+  it("両環境が揃っていれば、--deploy でも何もしない", async () => {
+    const { result, mock } = await run(same, { deploy: true });
+
+    expect(result.deployed).toBe(false);
+    expect(result.pendingInPreview).toBe(false);
+    expect(mock.callsTo("deploy")).toHaveLength(0);
   });
 });
 
