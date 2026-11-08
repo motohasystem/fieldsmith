@@ -1,5 +1,6 @@
 # 依存とビルド成果物
-node_modules/
+# 末尾の / を付けない。付けるとディレクトリにしか当たらず、symlink の node_modules がコミットされてしまう
+node_modules
 dist/
 
 # 認証情報。.env.example を雛形にして各自で作る
