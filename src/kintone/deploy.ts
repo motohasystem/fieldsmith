@@ -322,6 +322,32 @@ async function createPreviewApp(
   }
 }
 
+/** 動作テスト環境に残っている、運用環境へ未反映の変更。 */
+export interface PendingChanges {
+  readonly appName: string;
+  /** 動作テスト環境の revision。反映するときに渡す。 */
+  readonly revision: string;
+}
+
+/**
+ * 動作テスト環境に、運用環境へまだ反映していない変更があるかを調べる。**kintone を変更しない。**
+ *
+ * update / link は動作テスト環境と比べて差分を出すので、「動作テスト環境まで反映 → --deploy で再実行」
+ * の 2 回目は差分が空になる。差分だけを見ていると、残った変更を運用環境へ出す機会が無くなる。
+ * kintone のアプリ設定は環境ごとに revision を返し、反映すると両者が揃う。ずれていれば未反映。
+ */
+export async function findPendingChanges(
+  appId: string,
+  kintone: AuthenticatedKintone,
+): Promise<PendingChanges | null> {
+  const [preview, live] = await Promise.all([
+    kintone.call((client) => client.app.getAppSettings({ app: appId, preview: true })),
+    kintone.call((client) => client.app.getAppSettings({ app: appId, preview: false })),
+  ]);
+  if (preview.revision === live.revision) return null;
+  return { appName: preview.name, revision: preview.revision };
+}
+
 /** 運用環境への反映が完了するまで、指数バックオフで状況を確認し続ける。 */
 export async function waitForDeployment(
   appId: string,
@@ -585,6 +611,11 @@ export interface UpdateResult {
   readonly warnings: readonly string[];
   /** 今回あらたに削除候補へ移したフィールド。 */
   readonly pendingOrphans: readonly string[];
+  /**
+   * 差分は無いが、動作テスト環境に運用環境へ未反映の変更が残っていたか。
+   * `deployed` が true なら、それを運用環境へ反映した。false なら残ったまま。
+   */
+  readonly pendingInPreview: boolean;
 }
 
 /**
@@ -669,6 +700,30 @@ export async function updateApp(
     orphanCodes.length === 0;
 
   if (nothingToDo) {
+    // 前回 --deploy なしで動作テスト環境まで入れた変更は、ここでは差分に出てこない。
+    const pending = await findPendingChanges(appId, kintone);
+    if (pending !== null && options.deploy === true) {
+      report({
+        step: "deploy",
+        message: "動作テスト環境に残っている変更を、運用環境へ反映します",
+        detail: `revision=${pending.revision}`,
+      });
+      await kintone.call((client) =>
+        client.app.deployApp({ apps: [{ app: appId, revision: pending.revision }] }),
+      );
+      report({ step: "polling", message: "反映の完了を待っています" });
+      await waitForDeployment(appId, kintone, options.polling, report);
+      return {
+        appId,
+        appName: pulled.appName,
+        diff,
+        revision: pending.revision,
+        deployed: true,
+        warnings,
+        pendingOrphans: [],
+        pendingInPreview: true,
+      };
+    }
     return {
       appId,
       appName: pulled.appName,
@@ -677,6 +732,7 @@ export async function updateApp(
       deployed: false,
       warnings,
       pendingOrphans: [],
+      pendingInPreview: pending !== null,
     };
   }
 
@@ -844,6 +900,7 @@ export async function updateApp(
       deployed: false,
       warnings,
       pendingOrphans: orphanCodes,
+      pendingInPreview: false,
     };
   }
 
@@ -861,6 +918,7 @@ export async function updateApp(
     deployed: true,
     warnings,
     pendingOrphans: orphanCodes,
+    pendingInPreview: false,
   };
 }
 

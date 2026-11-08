@@ -237,7 +237,19 @@ program
       } else {
         say("");
         say("✓ 運用環境へ反映しました。");
-        for (const app of result.apps) say(`  ${config.baseUrl}/k/${app.appId}/ (${app.name})`);
+        for (const app of result.apps) {
+          const note = app.carriedOver === true ? " — 動作テスト環境に残っていた変更" : "";
+          say(`  ${config.baseUrl}/k/${app.appId}/ (${app.name})${note}`);
+        }
+      }
+
+      if (result.pendingApps.length > 0) {
+        say("");
+        say("次のアプリの動作テスト環境に、運用環境へ未反映の変更が残っています:");
+        for (const app of result.pendingApps) {
+          say(`  ${config.baseUrl}/k/${app.appId}/ (${app.name}) で「変更を確認」してください。`);
+        }
+        say("  問題なければ --deploy を付けて再実行すると、運用環境へ反映します。");
       }
 
       reportWarnings(result.plan.warnings);
@@ -245,6 +257,7 @@ program
         command: "link",
         deployed: result.deployed,
         apps: result.apps,
+        pendingApps: result.pendingApps,
         plan: result.plan,
         warnings: result.plan.warnings,
       });
@@ -539,12 +552,23 @@ program
         status.done();
       }
 
-      if (isEmptyDiff(result.diff) || result.revision === "-1") {
+      if (result.pendingInPreview && result.deployed) {
+        say(`アプリ ${appId}「${result.appName}」と spec の差分はありません。`);
+        say("");
+        say("✓ 動作テスト環境に残っていた変更を、運用環境へ反映しました。");
+        say(`  ${config.baseUrl}/k/${appId}/`);
+      } else if (isEmptyDiff(result.diff) || result.revision === "-1") {
         say(`アプリ ${appId}「${result.appName}」に適用する変更はありません。`);
         if (result.diff.orphaned.length > 0) {
           say(
             `  ${result.diff.orphaned.length} 件のフィールドは、すでに削除候補グループに入っています。`,
           );
+        }
+        if (result.pendingInPreview) {
+          say("");
+          say("ただし、動作テスト環境に運用環境へ未反映の変更が残っています。");
+          say(`  ${config.baseUrl}/k/${appId}/ で「変更を確認」してください。`);
+          say("  問題なければ --deploy を付けて再実行すると、運用環境へ反映します。");
         }
       } else {
         say("");
@@ -573,8 +597,10 @@ program
       emitSuccess({
         command: "update",
         app: { id: appId, name: result.appName, url: `${config.baseUrl}/k/${appId}/` },
-        hasChanges: result.revision !== "-1",
+        // 残っていた変更を反映しただけなら、今回の変更は無い。
+        hasChanges: result.revision !== "-1" && !result.pendingInPreview,
         deployed: result.deployed,
+        pendingInPreview: result.pendingInPreview,
         movedToOrphanGroup: result.pendingOrphans,
         revision: result.revision,
         diff: result.diff,

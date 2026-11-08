@@ -9,7 +9,7 @@ import {
   type ReferenceTableLink,
 } from "../spec/linkSpec.js";
 import type { AuthenticatedKintone } from "./client.js";
-import { waitForDeployment, type PollingOptions } from "./deploy.js";
+import { findPendingChanges, waitForDeployment, type PollingOptions } from "./deploy.js";
 
 /**
  * アプリ間の結線を反映する。
@@ -454,12 +454,23 @@ export interface LinkedApp {
   readonly appId: string;
   readonly name: string;
   readonly revision: string;
+  /**
+   * 今回は変更せず、動作テスト環境に残っていた未反映の変更だけを運用環境へ反映したか。
+   * 「link → 画面で確認 → link --deploy」の 2 回目がこれに当たる。
+   */
+  readonly carriedOver?: boolean;
 }
 
 export interface LinkResult {
   readonly plan: LinkPlan;
   readonly deployed: boolean;
+  /** 今回変更した (`--deploy` なら運用環境まで反映した) アプリ。 */
   readonly apps: readonly LinkedApp[];
+  /**
+   * 今回は変更していないが、動作テスト環境に運用環境へ未反映の変更が残っているアプリ。
+   * `--deploy` なしのときだけ入る (`--deploy` なら反映して `apps` に入る)。
+   */
+  readonly pendingApps: readonly LinkedApp[];
 }
 
 /**
@@ -487,10 +498,32 @@ export async function applyLinks(
   }
 
   const apps: LinkedApp[] = [];
+  const pendingApps: LinkedApp[] = [];
+
+  const deploy = async (appId: string, name: string, revision: string, message: string) => {
+    report({ step: "deploy", message: `${name}: ${message}` });
+    await kintone.call((client) => client.app.deployApp({ apps: [{ app: appId, revision }] }));
+    await waitForDeployment(appId, kintone, options.polling, (progress) =>
+      report({ step: "polling", message: progress.message, ...(progress.detail === undefined ? {} : { detail: progress.detail }) }),
+    );
+  };
 
   for (const [appId, entries] of byApp) {
     const todo = entries.filter((entry) => entry.action !== "unchanged" || entry.moves);
-    if (todo.length === 0) continue;
+    if (todo.length === 0) {
+      // 結線は揃っていても、前回 --deploy なしで入れた分が動作テスト環境に残っていることがある。
+      // 差分は動作テスト環境と比べるので、ここで拾わないと運用環境へ出す手段が無い。
+      const pending = await findPendingChanges(appId, kintone);
+      if (pending === null) continue;
+      const app = { appId, name: pending.appName, revision: pending.revision, carriedOver: true };
+      if (options.deploy === true) {
+        await deploy(appId, pending.appName, pending.revision, "動作テスト環境に残っている変更を、運用環境へ反映します");
+        apps.push(app);
+      } else {
+        pendingApps.push(app);
+      }
+      continue;
+    }
 
     const settings = await kintone.call((client) =>
       client.app.getAppSettings({ app: appId, preview: true }),
@@ -563,17 +596,13 @@ export async function applyLinks(
     }
 
     if (options.deploy === true) {
-      report({ step: "deploy", message: `${settings.name}: 運用環境へ反映します` });
-      await kintone.call((client) => client.app.deployApp({ apps: [{ app: appId, revision }] }));
-      await waitForDeployment(appId, kintone, options.polling, (progress) =>
-        report({ step: "polling", message: progress.message, ...(progress.detail === undefined ? {} : { detail: progress.detail }) }),
-      );
+      await deploy(appId, settings.name, revision, "運用環境へ反映します");
     }
 
     apps.push({ appId, name: settings.name, revision });
   }
 
-  return { plan, deployed: options.deploy === true, apps };
+  return { plan, deployed: options.deploy === true, apps, pendingApps };
 }
 
 /**
