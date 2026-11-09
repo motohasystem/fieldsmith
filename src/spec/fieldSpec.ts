@@ -53,8 +53,9 @@ export const UNADDABLE_FIELD_TYPES: Record<string, string> = {
   // 関連レコード一覧も相手アプリに依存する。加えて condition と displayFields が
   // 相手アプリのフィールドコードなので、--dry-run では実在を確かめようがない。
   // 値を持たない表示専用のフィールドなので、外してもレコードのデータは失われない。
-  // @see README.md「関連レコード一覧を対象外にしている理由」
-  REFERENCE_TABLE: "関連レコード一覧は v1 では未対応です",
+  // @see README.md「関連レコード一覧を AppSpec に入れない理由」
+  REFERENCE_TABLE:
+    "関連レコード一覧は AppSpec に書けません。結線ファイルに書いて fieldsmith link で反映してください",
   // グループは fields に書くものではなく、layout: "sections" と field.group から
   // fieldsmith が組み立てる。中に何が入るかはレイアウトの話なので、
   // フィールドの列挙とは別の場所で表現したほうが読みやすい。
@@ -72,9 +73,10 @@ export const UNADDABLE_FIELD_TYPES: Record<string, string> = {
   //      --dry-run は kintone に接続しないので相手アプリを検証できず、
   //      「検証は通ったのにデプロイ中に落ちる」型の失敗になる。
   //
-  // アプリ間の参照は AppSpec の外に置き、kintone 上で人が繋ぐ前提。
-  // @see README.md「ルックアップを対象外にしている理由」
-  LOOKUP: "ルックアップは v1 では未対応です",
+  // アプリ間の参照は AppSpec の外 (結線ファイル) に置き、fieldsmith link で繋ぐ。
+  // @see README.md「ルックアップを AppSpec に入れない理由」
+  LOOKUP:
+    "ルックアップは AppSpec に書けません。フィールドは文字列などで作り、結線ファイルに書いて fieldsmith link でルックアップにしてください",
 };
 
 /**

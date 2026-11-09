@@ -64,7 +64,9 @@ describe("追加できないフィールド型", () => {
     // テーブルとグループは「未対応」ではなく「書き方が違う」ので、書き方を示す。
     ["SUBTABLE", /table を付けてください/],
     ["GROUP", /layout: "sections"/],
-    ["REFERENCE_TABLE", /未対応/],
+    // ルックアップと関連レコード一覧は AppSpec の外で扱う。どこで書くかを示す。
+    ["REFERENCE_TABLE", /fieldsmith link/],
+    ["LOOKUP", /fieldsmith link/],
   ])("%s は API を呼ぶ前に弾く", (type, pattern) => {
     const issues = expectIssues({ name: "アプリ", fields: [{ type, label: "x" }] });
     expect(issues).toHaveLength(1);
