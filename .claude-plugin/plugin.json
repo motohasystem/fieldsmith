@@ -1,7 +1,7 @@
 {
   "name": "kintone-fieldsmith",
   "description": "Author, validate, deploy and update kintone apps from an AppSpec (JSON) with the fieldsmith CLI. Offline validation, read-only diffs, and explicit confirmation before anything reaches production.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": {
     "name": "Daisuke Motohashi"
   },
