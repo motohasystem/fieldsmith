@@ -636,7 +636,7 @@ export async function updateApp(
 
   const pulled = await pullApp(appId, kintone, { onProgress: report });
   const current = parseAppSpec(pulled.spec);
-  const diff = diffAppSpec(current, desired);
+  const diff = diffAppSpec(current, desired, { parkedCodes: pulled.parkedCodes });
 
   if (diff.retyped.length > 0) {
     // kintone は作成後の型を変えられない。黙って飛ばすと spec と実物がずれる。
@@ -837,11 +837,20 @@ export async function updateApp(
       message: "一覧を変更します",
       detail: `+${diff.views.added.length} ~${diff.views.updated.length} -${diff.views.removed.length}`,
     });
+    // updateViews は一覧を丸ごと置き換える。spec に書かなかった項目 (sort など) は
+    // 現在の値で埋めてから送る。そうしないと「未指定は現状維持」のはずが既定値に戻る。
+    const currentViews = new Map((current.views ?? []).map((view) => [view.name, view]));
+    const views = (desired.views ?? []).map((view) => {
+      const existing = currentViews.get(view.name);
+      // 型が変わるなら引き継がない (CALENDAR の date を LIST に持ち込まない)。
+      const sameType = existing !== undefined && (existing.type ?? "LIST") === (view.type ?? "LIST");
+      return sameType ? { ...existing, ...definedOnly(view) } : view;
+    });
     const result = await kintone.call((client) =>
       client.app.updateViews({
         app: appId,
         revision,
-        views: toViews(desired.views ?? []),
+        views: toViews(views),
       } as Parameters<KintoneRestAPIClient["app"]["updateViews"]>[0]),
     );
     revision = result.revision;
@@ -922,3 +931,10 @@ export async function updateApp(
   };
 }
 
+
+/** 値が undefined のキーを落とす。スプレッドで既存値を上書きしないために使う。 */
+function definedOnly<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, v]) => v !== undefined),
+  ) as Partial<T>;
+}

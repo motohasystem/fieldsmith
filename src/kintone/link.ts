@@ -263,8 +263,10 @@ function validate(
       path: at("relatedKeyField"),
       message: `"${link.relatedKeyField}" は参照先の ${related.name} にありません`,
     });
-  } else if (key["unique"] !== true) {
+  } else if (key["unique"] !== true && String(key["type"]) !== "RECORD_NUMBER") {
     // kintone の決まり。ここで弾かないとデプロイの途中で落ちる。
+    // レコード番号は常に一意なので「重複禁止」の設定項目そのものを持たない (unique が返らない)。
+    // それでもルックアップのキーには使える。業務キーが一意にならないアプリではこれしか無い。
     issues.push({
       path: at("relatedKeyField"),
       message:

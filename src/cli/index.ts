@@ -438,7 +438,7 @@ program
 
       const pulled = await pullApp(appId, kintone);
       const current = parseAppSpec(pulled.spec);
-      const diff = diffAppSpec(current, desired);
+      const diff = diffAppSpec(current, desired, { parkedCodes: pulled.parkedCodes });
 
       if (isEmptyDiff(diff)) {
         say(`アプリ ${appId}「${pulled.appName}」と ${specPath} に差分はありません。`);
@@ -573,9 +573,9 @@ program
         say(`  ${config.baseUrl}/k/${appId}/`);
       } else if (isEmptyDiff(result.diff) || result.revision === "-1") {
         say(`アプリ ${appId}「${result.appName}」に適用する変更はありません。`);
-        if (result.diff.orphaned.length > 0) {
+        if (result.diff.parked.length > 0) {
           say(
-            `  ${result.diff.orphaned.length} 件のフィールドは、すでに削除候補グループに入っています。`,
+            `  ${result.diff.parked.length} 件のフィールドは、すでに削除候補グループに入っています。`,
           );
         }
         if (result.pendingInPreview) {

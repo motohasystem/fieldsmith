@@ -8,6 +8,7 @@ import { UnsupportedUpdateError, updateApp } from "../src/kintone/deploy.js";
 import { REQUIRED_SCOPE } from "../src/kintone/oauth.js";
 import { saveToken } from "../src/kintone/tokenStore.js";
 import { parseAppSpec } from "../src/spec/appSpec.js";
+import { isEmptyDiff } from "../src/spec/diff.js";
 import { ORPHAN_GROUP_CODE } from "../src/spec/layout.js";
 import { BASE_URL, noSleep, setupKintoneMock } from "./kintoneMock.js";
 
@@ -232,8 +233,10 @@ describe("何度流しても同じ結果になる", () => {
     server.close();
     rmSync(env["FIELDSMITH_CONFIG_DIR"]!, { recursive: true, force: true });
 
-    // 差分としては削除候補のままだが、動かす必要はない。
-    expect(result.diff.orphaned.map((o) => o.code)).toEqual(["顧客名"]);
+    // 既に削除候補に入っているものは差分に数えない。動かす必要もない。
+    expect(result.diff.orphaned).toEqual([]);
+    expect(result.diff.parked.map((o) => o.code)).toEqual(["顧客名"]);
+    expect(isEmptyDiff(result.diff)).toBe(true);
     expect(result.pendingOrphans).toEqual([]);
     expect(mock.calls.filter((call) => call.method !== "GET")).toEqual([]);
   });
