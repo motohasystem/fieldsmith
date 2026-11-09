@@ -90,8 +90,8 @@ export function toAppSpecFromKintone(input: PullInput): PulledSpec {
     //
     // フィールドごと落とすのではなく、ただの文字列などとして残す。そこには
     // 実際にデータが入っているし、AppSpec の側でもアプリ間の参照は
-    // 「人が kintone 上で繋ぐ」前提にしているため。
-    // @see README.md「ルックアップを対象外にしている理由」
+    // AppSpec の外 (結線ファイル + fieldsmith link) で繋ぐ前提にしているため。
+    // @see README.md「ルックアップを AppSpec に入れない理由」
     if (property["lookup"] !== undefined) {
       warnings.push(
         `フィールド「${named(property)}」のルックアップ設定は` +
